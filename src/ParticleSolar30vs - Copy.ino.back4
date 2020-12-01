@@ -1,0 +1,851 @@
+/* A project to monitor water quality in remote locations
+  Uses the Particle Electron powered by a solar panel and the LiPo battery that comes with the Electron.
+  parameters include:
+  Water   Temperature                       --from BME280 in oil for depth
+          Specific conductance              --Gravity: Analog TDS Sensor/Meter
+          Water Depth                       --a BME280 in mineral oil measuring pressure
+  Air     Temperature, Humidity, Pressure   --BME280
+  Rain	  Index of intensity                --generic Rain / Water Level Sensor
+  Battery Percent charge                    --internal to Electron
+          Charge voltage                    --internal to Electron
+  Cell	  Signal strength                   --internal to Electron
+
+  Parameter values are sent to:
+    Ubidots for storage and plotting
+    Particle for tracking of unit activity
+
+  Pin IDs and code are included for an analog vented depth sensor and a BME280 based depth sensor but the
+  analog vented sensor is not implemented in Spudnik-09 and later.
+  The code will run with the depth sensors missing. If a sensor reading fails, dummy results are reported
+  to Ubidots and/or particle.
+
+  In general the code is written to, hopefully, not "hang" if a sensor is missing or fails.
+    This code has been run on a "bare" electron with only a battery and antenna and "FuelGauge" values
+    are reported to the Particle Console and dummy values are reported to Ubidots sucessfully.
+
+  Delays and Particle.process() are implemented after upload of the data so that there is time for
+  OTA software updates. In any case OTA updates seem to be sensitive to timing.  The delay for OTA upload
+  requires SYSTEM_THREAD(ENABLED) otherwise the code gets stuck while checking for Cellular.connect();
+
+  Frequency of sensor reading and data reporting is dependent on the battery charge.  Frequency decreases
+  as the battery charge decreases.  If charge (SOC) is below 20% the Particle blinks the blue LED slowly then
+  goes to sleep for 9 hours, during which it is hoped that it will get some sun to recharge.
+
+  If cell signal is weak and the Particle can not connect for 2 minutes it flashed blue LED, writes a message
+  to serial, tries 1 more minute and then goes back to sleep.
+
+*/
+// for logging to SD------------
+#include <SPI.h>        //**
+#include <SdFat.h>      //**
+// SD chip select pin.  Be sure to disable any other SPI devices such as Enet.
+const uint8_t chipSelect = SS;  //**
+// create filename as a global variable for use in several functions
+//String fileName ;       //**
+char fileName[30];
+// File system object.
+SdFat sd;               //**
+// identify a Logging file.
+SdFile file;            //**
+// Error messages stored in flash.
+#include "camera_VC0706.h"
+camera_VC0706 cam = camera_VC0706(&Serial1);
+
+#define error(msg) sd.errorHalt(F(msg))
+//-------------------------------
+#include "sensitive_definitions.h"  // this file contains ubidots token definition
+                               // e.g.  #define your_token ""  // Put here your Ubidots TOKEN
+// for the temp. humidity, pressure BME280 sensor
+#include <CE_BME280.h>
+// Create two BME280 instances
+CE_BME280 bme1; // I2C  for air temp. pressure, humidity
+CE_BME280 bme2; // I2C   for WATER temp. & pressure
+
+//BME280_I2C bme1(0x76); // I2C using address 0x76
+//BME280_I2C bme2(0x77); // I2C using address 0x77
+
+#include <Adafruit_DHT_Particle.h>  // air and humidity sensor.   includes "isnan()" function
+
+#include <Ubidots.h>   // using here Ubidots=3.1.4
+
+//SYSTEM_MODE(AUTOMATIC); 
+SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flash remotely, tried automatic then set back to semi-automatic
+//The only main difference between SEMI_AUTOMATIC mode and AUTOMATIC mode is that for semi-automatic
+    // Particle.connect() is not called at the beginning of your code;  With semi-automatic you must call Particle.connect() yourself
+SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
+//#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
+#define DATA_SOURCE_NAME "Spudnik-08b"
+//#define unit_name "Spudnik-08b"
+String unit_name = "Spudnik-08b";
+#define code_name "particlesolar30c"
+
+ApplicationWatchdog *wd;
+
+Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will be created in your Ubidots account
+                            // your_token is defined in sensitive_definitions.h
+
+//*****************************************************
+  #define t1_offset  -0.80 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
+  #define t2_offset  -0.60 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
+  #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
+//*****************************************************
+  char publishStr[30];
+  char works[4];
+  const int      MAXRETRY          = 4;
+  int      ii          = 0;
+//initialize for BME280 bme2 AIR temp, humidity, pressure readings
+  float t1 = -99.9;
+  float h1 = -99.9;
+  float p1 = -99.9;
+//initialize for BME280  bme2 WATER temp, pressure readings
+  float t2 = -99.9;
+  float p2 = -99.9;
+//initialize timing variables
+  int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
+  int a_minute = 60000; // define a minute as 60000 milli-seconds
+  int minutes = 60;  // default minutes to sleep
+  int seconds = 2;
+/*
+D0 = SDA for temp/humid/pressure sensor (BME280)
+D1 = SCL for temp/humid/pressure sensor (BME280)
+// D2 =
+D3 = power for digital sensors (BME280, )
+// D4 = water temperature sensor (ds18b20 )
+// D5 = power for 1st analog sensor (  )
+// D6 = power for 2nd analog sensor (TDS)  not needed, TDS runs off of B1
+D7 = ledPin  to flash LED
+
+//A0 = analog pin for depth sensor   //not needed when using the BME in oil depth sensor
+A5 = analog pin for rain sensor
+A2 = analog pin for TDS/Sp.C sensor
+
+B0 = used as digital power pin to supply 3.3 volts to RAIN analog sensor
+B1 = used as digital power pin to supply 3.3 volts to TDS analog sensor
+*/
+//int DepthPin = A0;  //unused analog depth sensor
+int RainPin = A1;
+int SpCSensorPin  = A0;
+int ledPin = D7;         // LED connected to D7
+  // reset the system after 15 min if the application is stuck.  set as an escape from some hangup.
+    // watchDog is petted after cell connection estsblished
+ //ApplicationWatchdog wDog(90000, watchdogHandler, 512);
+
+// ---------SETUP------------
+void setup() {
+     Serial.begin(9600);
+       wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
+///    Particle.variable("temp", t2);
+
+//  Do I need to set up D0 and D1 in some way for the BME280s   ????????????
+  pinMode(ledPin, OUTPUT);          // Sets pin as output
+// create power on digital pins for stable power supply AND so that sensors are shut down
+  // when processor is shut down
+	pinMode(D3, OUTPUT);     // power for the all digital sensors
+	digitalWrite(D3, HIGH);
+                              //activate the Electron internal pullup resistor but also have a 4.7Kohm pullup on the board
+//	pinMode(D6, OUTPUT);     // power for 2nd analog sensor nt needed because TDS powered off B1
+//	digitalWrite(D6, HIGH);
+
+	pinMode(B0, OUTPUT);     // power for analog rain sensor
+	digitalWrite(B0, HIGH);	//
+  pinMode(B1, OUTPUT);     // power for analog TDS sensor
+  digitalWrite(B1, HIGH);	//
+	delay(500);   // delay to give time for power to turn on, don't know if this is needed
+
+  //ubidots.setDatasourceName(DATA_SOURCE_NAME); //This name will automatically show up in Ubidots the first time you post data.
+
+// Initalize the PMIC class so you can call the Power Management functions below.
+  // Particle.publish("PMIC", "setting charge in setup",60,PRIVATE);
+  PMIC pmic;
+  /// pmic.setInputCurrentLimit(150);
+  /*******************************************************************************
+    Function Name : setInputCurrentLimit
+    Description : Sets the input current limit for the PMIC
+    Input : 100,150,500,900,1200,1500,2000,3000 (mAmp)
+    Return : 0 Error, 1 Success
+    use pmic.setInputCurrentLimit(uint16_t current);
+    // from spark_wiring_power.cpp
+     @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+     This will be overridden if the input voltage drops out and comes back though (with something like a solar cell)
+     and it will be set back to the default 900mA level. To counteract that you could set it in a Software Timer every 60 seconds or so.
+    *******************************************************************************/
+ pmic.setChargeCurrent(0, 0, 1, 0, 0, 0);      // Set charging current to 1024mA (512 + 512 offset)    //???????? is this good idea?
+    //pmic.setChargeCurrent(0, 0, 0, 0, 1, 0);  // Set charging current to 640mA (512 + 128)
+  /* Function Name  : setChargeCurrent  // from spark_wiring_power.cpp
+     @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+  * Description    : The total charge current is the 512mA + the combination of the
+                    current that the following bits represent
+                    bit7 = 2048mA
+                    bit6 = 1024mA
+                    bit5 = 512mA
+                    bit4 = 256mA
+                    bit3 = 128mA
+                    bit2 = 64mA
+ * Input          : six boolean values
+                    For example,
+                    setChargeCurrent(0,0,1,1,1,0) will set the charge current to
+                    512mA + [0+0+512mA+256mA+128mA+0] = 1408mA
+    */
+ // Set the lowest input voltage to 4.84 volts. This keeps the solar panel from operating below 4.84 volts.
+ pmic.setInputVoltageLimit(4840);  //  taken from code suggested by RyanB in the https://community.particle.io forum
+      // see: https://community.particle.io/t/pmic-only-sometimes-not-charging-when-battery-voltage-is-below-3-5v/30346
+  //      pmic.setInputVoltageLimit(4040); //to get some charge in low light? not sure this helps
+  ///pmic.setInputVoltageLimit(5080);
+  /*************************from: https://github.com/particle-iot/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+  * Function Name  : setInputVoltageLimit
+  * Description    : set the minimum acceptable input voltage
+  * Input          : 3880mV to 5080mV in the increments of 80mV
+                    3880
+                    3960
+                    4040
+                    4120
+                    4200
+                    4280
+                    4360
+                    4440
+                    4520
+                    4600
+                    4680
+                    4760
+                    4840
+                    4920
+                    5000
+                    5080
+  * Return         : 0 Error, 1 Success
+ *******************************************************************************/
+ //pmic.setChargeVoltage(4512);  // for sealed lead-acit (SLA) battery. may not be implemented in spark_wiring_power.cpp
+ pmic.setChargeVoltage(4208); // set upper limit on charge voltage. this limits the
+  // max charge that will be given to the battery.
+  // default is 4112 in Particle Electron which gives 80% charge. set to 4208 to get charge to go up to 90%
+  /*******************************************************************************
+  * Function Name  : setChargeVoltage
+  * Description    : The total charge voltage is the 3.504V + the combination of the
+                    voltage that the following bits represent
+                    bit7 = 512mV
+                    bit6 = 256mV
+                    bit5 = 128mV
+                    bit4 = 64mV
+                    bit3 = 32mV
+                    bit2 = 16mV
+  * Input          : desired voltage (4208 or 4112 are the only options currently)
+                    4208 is the default // this doesn't seem to be true for the Electron
+                    4112 is a safer termination voltage if exposing the
+                battery to temperatures above 45°C & the Particle Electron default
+  * Return         : 0 Error, 1 Success
+  e.g  case 4112:    writeRegister(CHARGE_VOLTAGE_CONTROL_REGISTER, (mask | 0b10011000));
+                                                                              76543 = 3504+512+64+32=4112
+     0b111111000 = max = 4.512 if  spark_wiring_power.cpp gets modified
+  *******************************************************************************
+   bool PMIC::setChargeVoltage(uint16_t voltage) {.......................
+ *******************************************************************************/
+
+ // setup two BME280s
+    if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
+                  //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt
+    {
+///      Serial.println("Could not find 1st valid BME280 sensor, check wiring!");
+      Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
+        //  while (1);  // original code had this but seems like an endless loop if the BME is not detected.
+      }
+    if (!bme2.begin(0x76))  // the water depth sensor in oil made from a BME280. Temp and pressure
+    {
+///        Serial.println("Could not find 2nd valid BME280 sensor, check wiring!");
+        Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
+      }
+
+ setup_SD();
+  // register a Particle cloud Function
+  Particle.function("Delay", delayTime);
+
+ Serial.println("ending setup");
+} // end setup()
+
+//-----------LOOP
+void loop() {  
+  char event_name[30];
+  //Serial.println("in loop");
+  FuelGauge fuel; // Initalize the Fuel Gauge so we can call the fuel gauge functions below.
+  //  set the deep sleep timer based on the battery charge
+  //--- get battery info
+  float volts = fuel.getVCell();
+  float SoC = -99;
+  //SoC = System.batteryCharge();
+  SoC = fuel.getSoC();
+    /*  if (SoC <15) {
+                    //LowBattBlink();
+                    LowBattBlink();
+                    PMIC pmic;
+                    pmic.disableBATFET();
+                    // turns off the battery. Unit will still run if power is supplied to VIN,
+                        // i.e. a solar panel+light
+                    // unit will st ay on programed schedule of waking if power to VIN maintained
+                    // if no power to VIN, i.e. no light, then unit stays off
+                    // if power re-applied to VIN, unit boots up, disables battery again but continues with
+                        //program, including reporting to web
+                    // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
+                    // this will:
+                        //--disable battery if SOC is very low
+                        //--wake and run the unit if solar powers VIN
+                        //--run on programed schedule if solar powers VIN constantly
+                        //--charge the battery if solar powers VIN
+                        //--be skipped if power to VIN brings battery charge above 15%
+                   }
+    */
+ minutes = checkBattery(SoC,volts);
+ //minutes = 2;
+
+  float rain = analogRead(RainPin);
+  digitalWrite(B0, LOW);     //turn off power to the rain sensor, otherwise it interfears
+                             // with the next analog sensor (i.e. TDS/Sp.C)
+  delay(200);
+  // ---- get AIR temperature and humidity and pressure
+            // from BME280 using I2C connection
+        int i = 0;
+        while(i<2)  // read 2 times to be sure of a good read
+             {
+               t1 = bme1.readTemperature();
+               h1 = bme1.readHumidity();
+               p1 = bme1.readPressure()/100.0;
+               delay(200);
+               i++;
+             }
+          if (isnan(p1) || p1<1.0 )
+            { h1 = -99.1; t1 = -99.1; p1 = -99.1;  }   // -99.1 is flag for bme read error
+    // ---- get WATER temperature and pressure
+            // from the BME280 using I2C connection. being used underwater (enclosed in mineral oil) for depth sensor
+        i = 0;
+        while(i<2)  // read 2 times to be sure of a good read
+             {
+              t2 = bme2.readTemperature();
+              p2 = bme2.readPressure()/100.0;
+              delay(200);
+              i++;
+            }
+          // Check if any reads failed but don't hold things up
+       	    if (isnan(p1) || p2<1.0 )
+              {  t2 = -99.1; p2 = -99.1;  }    // -99.1 is flag for bme read error
+        t1 = t1+t1_offset;
+        t2 = t2+t2_offset;
+
+// ---- get WATER Specific Conductance and median voltage on sensor
+    float Sp_C = getSpC() * k;
+    float Avolts = getAvolts();
+
+// turn off sensor POWER pins after sensors are read
+    digitalWrite(D3, LOW);	 // for the digital sensors, BME280s
+          //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
+ ///digitalWrite(B0, LOW);	// for the rain sensor
+    digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor
+
+///	ubidots.add("time(UTC)",Time.now()/60);
+  float depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
+
+  ubidots.add("Rain", rain);
+	ubidots.add("Humidity_%", h1);
+	ubidots.add("Air-Temp_C", t1);
+  ubidots.add("Pressure_hPA", p1);
+  ubidots.add("H2O-Temp_C", t2);
+  ubidots.add("H2O_hPA", p2);
+  ubidots.add("Depth_in", depth);
+    ubidots.add("Volts", volts);
+    ubidots.add("SOC", SoC);
+      //if (t2 > -99.0)   // if reading water temperature was successful, send temp and Sp_Cond to Ubidots
+    ubidots.add("Sp_Cond", Sp_C);
+    ubidots.add("A.volts", Avolts);
+  
+
+//  code here to write the data to a SD card before trying to connect
+  char _json[256];
+    snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %04.2f",
+                          t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+      logData(_json);
+      delay(200);
+      close_SD();
+      delay(200);
+      //
+/*//if hour = 11 || hour == 3 then take picture
+takePhoto();
+savePhoto();
+*/
+// This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
+   //Serial.println("just prior to the Cellular.connect() command");
+   //delay(100);
+   Cellular.connect();   // this blocks further code execution (see reference) until connection
+                          // when in SYSTEM_MODE(semi_automatic),
+                          // unless SYSTEM_THREAD(ENABLED). I have SYSTEM_THREAD(ENABLED);
+                          //  in any case, after 5 mins of not successfuly connecting the modem
+                          // will give up and stop blocking code execution
+   delay(500);
+///   Serial.println("done the Cellular.connect() command, Waiting for Cellular.ready");
+      // If the cellular modem does not successfuly connect to the cellular network in
+      // 2 mins then blink blue LED and write message to serial below.
+      // Regardless of code, after 5 mins of not successfuly connecting the modem will give up.
+      if (!waitFor(Cellular.ready, a_minute * 1.5))
+         {
+            WeakSignalBlink();
+            delay(500);
+            WeakSignalBlink();
+            Serial.println("Difficulty connecting. Will try for 1 more min");
+            delay(500);
+         }
+      // check a second time to make sure it is connected, if not, try for 1 more minute
+      if (!waitFor(Cellular.ready, a_minute * 0.5))
+         {
+            WeakSignalBlink();
+            delay(500);
+            WeakSignalBlink();
+            sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
+           Serial.print("Difficulty connecting sleeping");   Serial.println(publishStr);
+            delay(500);
+            System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);
+            // if can't connect for a second time, go to deep sleep for
+            // for "minutes" minutes and on wake the program starts from the beginning
+          }
+   Serial.println("passed the Cellular.ready test");
+   Particle.connect();
+
+  /// if(Particle.connected()) { wDog.checkin();  } // resets the ApplicationWatchdog count if connected
+///   if(Particle.connected()) {  
+      wd->checkin();  
+      Particle.publish("particle", "connected",60,PRIVATE);
+      Serial.println("connected");
+
+// ---- get cell signal strength & quality
+      CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
+                                              //So this line has been moved to after the if Cellular.ready statement
+      ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
+      ubidots.add("CellStren", sig.rssi);
+//
+//  send the rest of the data to Ubidots
+      ubidots.send(DATA_SOURCE_NAME,DATA_SOURCE_NAME); // Send rest of the data to your Ubidots account.
+                //2020-01-12 modified UbiConstants.h to allow for sending up to 15 variables
+                  // but unibots doesn't seem to accept well more than 14 for a device
+            //        ubidots.sendAll();
+    waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
+
+    UploadBlink();
+    sprintf(publishStr, "%s, t1_offset, t2_offset, k_correction, A.volts, Wtemp, Depth_in, %05.2f, %05.2f, %05.2f, %05.3f, %05.2f, %06.3f",
+                    works, t1_offset, t2_offset, k, Avolts, t2, depth);
+      Particle.publish(unit_name, publishStr, 60, PRIVATE);
+delay(500);
+  //  char _json[256];
+      snprintf(_json, sizeof(_json), "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+                          t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+      Particle.publish("data", _json, PRIVATE);
+delay(500);
+
+      Serial.println("finished uploading");
+// send warning message to particle console
+       sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+      Particle.publish(unit_name, publishStr,60,PRIVATE);
+      waitSec(seconds);  //wait seconds
+//      delay(40000); // 35 second delay to allow time for OTA flashing
+    //  or
+      waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
+//uint32_t ms = millis();
+//	while(System.updatesPending() && millis() - ms < 60000) Particle.process();
+/*
+ if(System.updatesPending())
+       {
+         readyForOTA(30000);  // if OTA flash pending wait 30 seconds more to complete.  Not sure if this works.
+         sprintf(publishStr, "sleeping %2i minutes", minutes+1);
+       }
+  else {
+    */
+  // send message to particle console
+       sprintf(publishStr, "sleeping %2i minutes", minutes);
+       sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
+    Particle.publish(event_name, publishStr,60,PRIVATE);
+      waitSec(2); //wait 2 more seconds
+// Go to sleep for the amount of time determined by the battery charge
+  // for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
+     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
+    // System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval * minutes);  // shuts down SOC meter
+    // SLEEP_MODE_DEEP = 161 μA
+    // SLEEP_MODE_SOFTPOWEROFF = 110 μA
+
+
+} // end loop()
+
+//*******************************************************************************************
+//------------------------------ Functions --------------------------------------------------
+//
+void Blink()
+     {
+          for (size_t i = 0; i < 1; i++)
+          {
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(20);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);   // Sets the LED on
+            delay(5);
+          }
+     }
+void LowBattBlink() //slow blink blue twice
+     {
+          for (size_t i = 0; i < 2; i++)
+          {
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(2000);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);   // Sets the LED on
+            delay(2000);
+          }
+     }
+
+void WeakSignalBlink()
+     {
+          for (size_t i = 0; i < 10; i++)
+          {
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(150);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);    // Sets the LED off
+            delay(150);
+          }
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(550);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);    // Sets the LED off
+     }
+
+void UploadBlink()
+     {
+          for (size_t i = 0; i < 1; i++)
+          {
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(500);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);   // Sets the LED on
+            delay(1000);
+          }
+          for (size_t i = 0; i < 4; i++)
+          {
+            digitalWrite(ledPin, HIGH);   // Sets the LED on
+            delay(50);                   // Waits for a sec
+            digitalWrite(ledPin, LOW);   // Sets the LED on
+            delay(50);
+          }
+     }
+
+     int checkBattery(float charge,float V)
+       {
+         int min;
+         if (charge>12.5)   //  testing seems to indicate unit stops connecting to internet when too low
+           // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
+           // discharging the Electron completely can render it "bricked".
+           //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
+           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
+                {
+                 min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
+                  if (charge>25 )   min = 300;    // 5 hours (300 min)
+                     if (charge>50 )   min = 120;     // 2 hours (120 min)
+                         if (charge>65 )   min = 90;   // 1 hours (60 min)
+                                 if (charge>75 )   min = 60;     // 30 minutes
+                                     if (charge>80 )   min = 30;      // 15 minutes;
+                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
+                 }
+                else
+                 { // if battery below 25%, don't even try to connect but go to sleep for 9 hours
+                   min = 432000;   // sleep 5 days if battery very low
+              //   sprintf(publishStr, "not connecting, sleeping for %2i min to charge battery ", min);
+              //     Serial.println(publishStr);
+                   LowBattBlink();
+                   // could add code to collect data and write to SD card, or set flag to use later to skip connecting
+                   //System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval * minutes);
+                  System.sleep(SLEEP_MODE_DEEP, sleepInterval * min);
+                 }
+           return min;
+       }  // end of checkBattery
+
+// get SpC value from sensor
+  float getSpC()
+   {
+      #define VREF 3.3      // analog reference voltage(Volt) of the ADC
+      #define SCOUNT  40           // number of sample points to collect for averaging
+      #define resolution 4095.0  // analog resolution of 4095 with Particle electron
+      int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
+      int analogBufferTemp[SCOUNT];
+      int analogBufferIndex = 0,  copyIndex = 0;
+      float averageVoltage = 0;
+      float SpC = -1.1;
+
+      while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
+        {
+           analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
+           analogBufferIndex++;
+  //         if(analogBufferIndex == SCOUNT)
+            delay(50u);  //delay 50 milliseconds between taking sample
+        }
+      analogBufferIndex = 0;
+
+      for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1
+                 analogBufferTemp[copyIndex]= analogBuffer[copyIndex]; // copy analogBuffer to analogBufferTemp
+      averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF / resolution; // read the analog value,
+                                            // remember particle board has analog resolution of 4095
+                                            //made more stable by the median filtering algorithm, and convert to voltage value
+///      Serial.print(t2);   // temperature comes from a different sensor, outside this function.
+///      Serial.println(" deg.C at start");
+///      Serial.print("median analog reading= "); Serial.println(getMedianNum(analogBufferTemp,SCOUNT));
+///      Serial.print("averageVoltage= "); Serial.println(averageVoltage);
+      float compensationCoefficient=1.0+0.019*(t2-25.0);    //temperature compensation formula: 0.019 used by YSI
+                //fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+// coefficients given by DFROBOT on their webpage.  Error in that the temp. compensation should be after using the equation
+/* TDS=(133.42*compensationVolatge*compensationVolatge*compensationVolatge
+            - 255.86*compensationVolatge*compensationVolatge
+            + 857.39*compensationVolatge)*0.5*K; //convert voltage value to tds value and multiply by calibration K.
+*/
+// coefficients for the following equation derived from calibration to
+ // hundreds of specific conductance readings taken at SandL04 by an Onset logger running in parallel with the Spudnik
+       SpC= ( 18.835*averageVoltage*averageVoltage*averageVoltage
+            + 24.823*averageVoltage*averageVoltage
+            + 624.194*averageVoltage) /compensationCoefficient; //compensationCoefficient //convert voltage value to SpC value, then correct for temp
+
+    //  Serial.print("SpC Value: ");
+    //  Serial.println(SpC,2);
+      return SpC;  //adjust SpC by correction factor
+   }  // end of getSpC
+
+// get averageVolts value from sensor.  This can be sent to Ubidots for use later to calculate Specific Conductance
+float getAvolts()
+  {
+     #define VREF 3.3      // analog reference voltage(Volt) of the ADC
+     #define SCOUNT  40           // number of sample points to collect for averaging
+     #define resolution 4095.0  // analog resolution of 4095 with Particle electron
+     int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
+     int analogBufferTemp[SCOUNT];
+     int analogBufferIndex = 0, copyIndex = 0;
+     float averageVoltage = 0;
+
+     while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
+       {
+          analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
+          analogBufferIndex++;
+ //         if(analogBufferIndex == SCOUNT)
+           delay(50u);  //delay 50 milliseconds between taking sample
+       }
+       // copy one array to another
+     for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1  // old way of copying an array
+        {
+            analogBufferTemp[copyIndex]= analogBuffer[copyIndex];   // copy analogBuffer to analogBufferTemp
+        }
+     averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF / resolution; // read the analog value,
+             // remember particle board has analog resolution of 4095
+             //made more stable by the median filtering algorithm, and convert to voltage value
+   return averageVoltage;
+  }  // end of getAvolts
+
+// calculate a median for set of values in buffer
+int getMedianNum(int bArray[], int iFilterLen)
+{     int bTab[iFilterLen];
+    for (byte i = 0; i<iFilterLen; i++)
+            bTab[i] = bArray[i];                  // copy input array into BTab[] array
+    int i, j, bTemp;
+    for (j = 0; j < iFilterLen - 1; j++)        // put array in ascending order
+         {  for (i = 0; i < iFilterLen - j - 1; i++)
+           {  if (bTab[i] > bTab[i + 1])
+              {  bTemp = bTab[i];
+                 bTab[i] = bTab[i + 1];
+                 bTab[i + 1] = bTemp;
+               }
+            }
+          }
+   if ((iFilterLen & 1) > 0)  // check to see if iFilterlen is odd or even using & (bitwise AND) i.e if length &AND 1 is TRUE (>0)
+        bTemp = bTab[(iFilterLen - 1) / 2];     // then then it is odd, and should take the central value
+    else
+       bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;  // if even then take aveage of two central values
+  return bTemp;
+} //end getmedianNum
+
+inline void waitMS(uint32_t timeout)   // function to delay the system thread for the timeout period
+{ // timeout == 0 waits forever
+  uint32_t ms = millis();
+  while (timeout == 0 || millis() - ms < timeout)
+    Particle.process();
+}
+ //  create a Delay using timer, safer than delay()
+inline void waitSec(uint32_t seconds) {
+  for (uint32_t sec = (millis()/1000); (millis()/1000) - sec < seconds; Particle.process());
+}
+//===========================SD FUNCTIONS=====================================
+//  Edit writeHeader() and logData() for your requirements.
+//-------------------------------------------------------------------------------
+//setup the sd card
+void setup_SD()
+    {        
+      String hold;
+  ///    if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
+  ///        else { sprintf(works,"Yes "); }
+        //sd.begin(chipSelect, SD_SCK_MHZ(20)); 
+        Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format
+        if(! Time.isValid())
+              {
+     //           fileName = String("lost-time099.csv");  
+          strcpy(fileName, "lost-time000.csv");           
+     /*           for (int i = 0; i < 1000; i++) 
+                {
+                  fileName[9] = '0' + i/100;
+                  fileName[10] = '0' + i/10;
+                  fileName[11] = '0' + i%10;
+                  // if fn does not exist, use that fn
+                  if (!sd.exists(fileName)) {  break;  }
+                }
+                */
+              }       
+          else
+            { hold =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%d") + ".csv");    //**
+              strcpy(fileName, hold); 
+            }
+        Serial.println(fileName);
+
+        // Initialize at the highest speed supported by the board that is
+        // not over 50 MHz. Try a lower speed if SPI errors occur.
+        //if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sd.initErrorHalt();   }
+        //sprintf(publishStr,
+          if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
+          else { sprintf(works,"Yes "); }
+             Serial.println(works);
+        if(sd.exists(fileName))
+            {  file.open(fileName, O_WRONLY | O_APPEND);  }
+            else
+            {
+                file.open(fileName, O_WRONLY |O_CREAT | O_EXCL);
+                writeHeader();
+            }
+    }
+//------------------------------------------------------------------------------
+// Write data header.
+void writeHeader()
+    {
+        file.print(F("datetime, t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts"));
+        file.println();
+    }
+//------------------------------------------------------------------------------
+// Log a data record.
+    void logData(char data[256])
+    {
+        // Write data to file.
+        time_t time = Time.now();
+        ///  Time.zone(-6);  // setup a time zone, which is part of the ISO8601 format
+        file.print(Time.format(time, TIME_FORMAT_ISO8601_FULL)); // e.g. 2004-01-10T08:22:04-06:00
+
+    //    Particle.publish("battery1", data, 60, PRIVATE);
+        delay(500);
+        file.print(data);
+        file.println();
+    }
+//--------------------------------------------------------------------------------
+//close down the SD card
+void close_SD()
+    {
+         // Force data to SD and update the directory entry to avoid data loss.
+     /// if (!file.sync() || file.getWriteError()) {   Particle.publish("Log", "write error", 60, PRIVATE);  }
+      if (!file.sync() ) {   Particle.publish("Log", "write error", 60, PRIVATE);  }
+        // Close file and stop.
+        file.flush();
+        file.close();
+           sprintf(publishStr, "SD-write worked: %s", works);
+      Serial.println((publishStr));
+    //    Particle.publish("Log", "SD_done", 60, PRIVATE);
+    }
+
+void watchdogHandler() 
+  {
+  // Do as little as possible in this function, preferably just
+  // calling System.reset().
+  // Do not attempt to Particle.publish(), use Cellular.command()
+  // or similar functions. You can save data to a retained variable
+  // here safetly so you know the watchdog triggered when you 
+  // restart.
+  // In 2.0.0 and later, RESET_NO_WAIT prevents notifying the cloud of a pending reset
+  System.reset();
+    }
+
+int delayTime(String delay)
+  { if(delay == "long")
+      {seconds=120;   // creat enough delay time to flash the unit
+       Particle.publish("Particle", "in delayTime",60,PRIVATE);
+       return 1; }
+    else 
+      {seconds=5; return -1; }
+  }
+
+void takePhoto()
+{
+  // Try to locate the camera
+  if (cam.begin()) {
+    Serial.println("Camera Found:");
+  } else {
+    Serial.println("No camera found?");
+    return;
+    }
+  // Print out the camera version information (optional)
+  char *reply = cam.getVersion();
+  if (reply == 0) {
+    Serial.print("Failed to get version");
+  } else {
+  //  Serial.println("-----------------");
+    Serial.print(reply);
+  //  Serial.println("-----------------");
+  }
+  Serial.println("Snap in 1 secs...");
+ delay(1000);
+  if (! cam.takePicture()) 
+    Serial.println("Failed to snap!");
+  else 
+    Serial.println("Picture taken!");
+}
+
+void savePhoto() 
+{
+  String hold;
+ ///   if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sprintf(works,"No ");   }
+ ///      else { sprintf(works,"Yes "); }
+ // if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sd.initErrorHalt();    }
+    if( !Time.isValid()) 
+        {
+         // fileName = String("lost-time000.jpg");   
+          strcpy(fileName, "lost-time000.jpg");      
+          for (int i = 0; i < 1000; i++) {
+            fileName[9] = '0' + i/100;
+            fileName[10] = '0' + i/10;
+            fileName[11] = '0' + i%10;
+            // create if does not exist, do not open existing, write, sync after write
+          if (!sd.exists(fileName)) {  break;  }
+          }
+        }
+          else
+          {
+        //     fileName =
+            hold =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    //**
+            strcpy(fileName, hold); 
+          }
+
+  // Open the file for writing
+    file.open(fileName, FILE_WRITE);
+  // Get the size of the image (frame) taken  
+    uint16_t jpglen = cam.frameLength();
+    //Serial.print("Storing ");
+    Serial.print(jpglen, DEC);
+    Serial.print(" byte image. ");
+    Serial.println(fileName);
+
+    int32_t time = millis();
+    pinMode(8, OUTPUT);
+    // Read all the data up to # bytes!
+    byte wCount = 0; // For counting # of writes
+    while (jpglen > 0) {
+      // read 32 bytes at a time;
+      uint8_t *buffer;
+      uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
+      buffer = cam.readPicture(bytesToRead);
+      //imgFile.write(buffer, bytesToRead);
+      file.write(buffer, bytesToRead);
+      if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
+      //  Serial.print('.');
+        Blink();
+        wCount = 0;
+      }
+      //Serial.print("Read ");  Serial.print(bytesToRead, DEC); Serial.println(" bytes");
+      jpglen -= bytesToRead;
+    }
+    file.close();
+      time = millis() - time;
+    //Serial.println("done!");
+    Serial.print(time); Serial.println(" ms elapsed");
+}
