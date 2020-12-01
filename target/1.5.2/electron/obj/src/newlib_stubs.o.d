@@ -1,4 +1,4 @@
-g:/jsc/IoT/particle/ParticleSolar30vs/target/1.5.2/electron//obj/src/newlib_stubs.o: \
+g:/tmp/test2/Spudnik-SD-Photo/target/1.5.2/electron//obj/src/newlib_stubs.o: \
  src/newlib_stubs.cpp \
  c:\users\john\.particle\toolchains\gcc-arm\5.3.1\arm-none-eabi\include\sys\types.h \
  c:\users\john\.particle\toolchains\gcc-arm\5.3.1\arm-none-eabi\include\_ansi.h \

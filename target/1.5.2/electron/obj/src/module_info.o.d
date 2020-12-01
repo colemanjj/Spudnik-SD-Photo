@@ -1,4 +1,4 @@
-g:/jsc/IoT/particle/ParticleSolar30vs/target/1.5.2/electron//obj/src/module_info.o: \
+g:/tmp/test2/Spudnik-SD-Photo/target/1.5.2/electron//obj/src/module_info.o: \
  src/module_info.c ../../../dynalib/inc/module_info.inc \
  ../../../dynalib/inc/module_info.h ../../../services/inc/static_assert.h \
  c:\users\john\.particle\toolchains\gcc-arm\5.3.1\arm-none-eabi\include\assert.h \
