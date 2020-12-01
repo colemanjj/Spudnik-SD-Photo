@@ -400,7 +400,7 @@ savePhoto();
 //    if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sprintf(works,"No ");   }
 //       else { sprintf(works,"Yes "); }
  // if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sd.initErrorHalt();    }
-    if( Time.isValid()) 
+    if( !Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");   
   //       /// strcpy(fileName, "lost-time000.jpg");      
@@ -795,7 +795,7 @@ void setup_SD()
 
         ///  fileName = String("lost-time000.jpg");   
   
-        if( Time.isValid())
+        if(! Time.isValid())
         {
                fileName = String("lost-time000.csv");         
                //       /// strcpy(fileName, "lost-time000.jpg");      
