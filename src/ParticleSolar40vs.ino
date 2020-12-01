@@ -64,7 +64,8 @@ CE_BME280 bme2; // I2C   for WATER temp. & pressure
 //BME280_I2C bme1(0x76); // I2C using address 0x76
 //BME280_I2C bme2(0x77); // I2C using address 0x77
 
-#include <Adafruit_DHT_Particle.h>  // air and humidity sensor.   includes "isnan()" function
+//#include <Adafruit_DHT_Particle.h>  // air and humidity sensor.   includes "isnan()" function
+//#include <math.h>
 
 #include <Ubidots.h>   // using here Ubidots=3.1.4
 //SYSTEM_MODE(AUTOMATIC); 
@@ -400,12 +401,20 @@ savePhoto();
 //    if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sprintf(works,"No ");   }
 //       else { sprintf(works,"Yes "); }
  // if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sd.initErrorHalt();    }
+ //using namespace particle;
+
+ //using namespace StringSumHelper;
+ //using String::operator[];
+
     if( !Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");   
-  //       /// strcpy(fileName, "lost-time000.jpg");      
+//          fileName.String::operator[](fileName);
+  ///       /// strcpy(fileName, "lost-time000.jpg");      
           for (int i = 0; i < 1000; i++) {
-            fileName[9] = '0' + i/100;
+               fileName.String::operator[9] = '0' + i/100;
+               String::operator[9]
+ //           fileName[9] = '0' + i/100;
             fileName[10] = '0' + i/10;
             fileName[11] = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
