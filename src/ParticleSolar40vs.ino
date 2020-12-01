@@ -48,6 +48,7 @@ SdFat sd;               //**
 SdFile file;            //**
 // Error messages stored in flash.
 #define error(msg) sd.errorHalt(F(msg))
+ArduinoOutStream cout(Serial);
 // for camera-------------------------------
 #include "camera_VC0706.h"
 camera_VC0706 cam(&Serial1);
@@ -66,7 +67,6 @@ CE_BME280 bme2; // I2C   for WATER temp. & pressure
 
 //#include <Adafruit_DHT_Particle.h>  // air and humidity sensor.   includes "isnan()" function
 //#include <math.h>
-
 #include <Ubidots.h>   // using here Ubidots=3.1.4
 //SYSTEM_MODE(AUTOMATIC); 
 SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flash remotely, tried automatic then set back to semi-automatic
@@ -406,21 +406,19 @@ savePhoto();
  //using namespace StringSumHelper;
  //using String::operator[];
 
-    if( !Time.isValid()) 
+    if(! Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");   
 //          fileName.String::operator[](fileName);
   ///       /// strcpy(fileName, "lost-time000.jpg");      
           for (int i = 0; i < 1000; i++) {
-               fileName.String::operator[9] = '0' + i/100;
-               String::operator[9]
+            fileName.String::operator[](9) = '0' + i/100;
  //           fileName[9] = '0' + i/100;
-            fileName[10] = '0' + i/10;
-            fileName[11] = '0' + i%10;
+            fileName.String::operator[](10) = '0' + i/10;
+            fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
           if (!sd.exists(fileName)) {  break;  }
           }
-          
         }
           else
           {
@@ -460,6 +458,8 @@ savePhoto();
       time = millis() - time;
     //Serial.println("done!");
     Serial.print(time); Serial.println(" ms elapsed");
+   cout <<  F("\nList of files on the SD.\n");
+   (sd.ls("/", LS_R) );
 
 //----------------------------------------------------------------------------------
 
@@ -804,20 +804,20 @@ void setup_SD()
 
         ///  fileName = String("lost-time000.jpg");   
   
-        if(! Time.isValid())
+        if( !Time.isValid())
         {
-               fileName = String("lost-time000.csv");         
-               //       /// strcpy(fileName, "lost-time000.jpg");      
-          for (int i = 0; i < 1000; i++) {
-            fileName[9] = '0' + i/100;
-            fileName[10] = '0' + i/10;
-            fileName[11] = '0' + i%10;
+               fileName = String("lost-time000.csv");       
+        for (int i = 0; i < 1000; i++) {
+            fileName.String::operator[](9) = '0' + i/100;
+ //           fileName[9] = '0' + i/100;
+            fileName.String::operator[](10) = '0' + i/10;
+            fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
           if (!sd.exists(fileName)) {  break;  }
           }
         }
           else
-             fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%d") + ".csv");    //**
+             fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
         Serial.println(fileName + " filename");
 
         // Initialize at the highest speed supported by the board that is
