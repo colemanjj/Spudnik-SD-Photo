@@ -397,23 +397,13 @@ savePhoto();
   else 
     Serial.println("Picture taken!");   
 
- /// String hold;
-//    if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sprintf(works,"No ");   }
-//       else { sprintf(works,"Yes "); }
- // if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sd.initErrorHalt();    }
- //using namespace particle;
-
- //using namespace StringSumHelper;
- //using String::operator[];
-
     if(! Time.isValid()) 
         {
-          fileName = String("lost-time000.jpg");   
-//          fileName.String::operator[](fileName);
-  ///       /// strcpy(fileName, "lost-time000.jpg");      
+          fileName = String("lost-time000.jpg");       
           for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
- //           fileName[9] = '0' + i/100;
+//           strcpy(fileName, "lost-time000.jpg");  
+//           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
             fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
@@ -820,14 +810,7 @@ void setup_SD()
              fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
         Serial.println(fileName + " filename");
 
-        // Initialize at the highest speed supported by the board that is
-        // not over 50 MHz. Try a lower speed if SPI errors occur.
-        //if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sd.initErrorHalt();   }
-        //sprintf(publishStr,
-   ///     if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
-  ///      else { sprintf(works,"Yes "); }
-        //sd.begin(chipSelect, SD_SCK_MHZ(20)); 
-             Serial.println(works);
+        Serial.println(works);
         if(sd.exists(fileName))
             {  file.open(fileName, O_WRONLY | O_APPEND);  }
             else
