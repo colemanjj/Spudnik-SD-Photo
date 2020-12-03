@@ -1,9 +1,3 @@
-/******************************************************/
-//       THIS IS A GENERATED FILE - DO NOT EDIT       //
-/******************************************************/
-
-#include "Particle.h"
-#line 1 "g:/tmp/test2/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
 /* A project to monitor water quality in remote locations
   Uses the Particle Electron powered by a solar panel and the LiPo battery that comes with the Electron.
   parameters include:
@@ -45,26 +39,6 @@
 #include <SPI.h>        //**
 #include <SdFat.h>      //**
 // SD chip select pin.  Be sure to disable any other SPI devices such as Enet.
-void setup();
-void loop();
-void Blink();
-void LowBattBlink();
-void WeakSignalBlink();
-void UploadBlink();
-int checkBattery(float charge,float V);
-float getSpC();
-float getAvolts();
-int getMedianNum(int bArray[], int iFilterLen);
-inline void waitMS(uint32_t timeout);
-inline void waitSec(uint32_t seconds);
-void setup_SD();
-void writeHeader();
-void logData(char data[256]);
-void close_SD();
-void watchdogHandler();
-int delayTime(String delay);
-void takePhoto();
-#line 42 "g:/tmp/test2/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
 const uint8_t chipSelect = SS;  //**
 // create filename as a global variable for use in several functions
 String fileName ;       //**
