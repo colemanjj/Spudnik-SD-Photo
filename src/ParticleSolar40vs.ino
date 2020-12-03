@@ -340,9 +340,9 @@ void loop() {
                           t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
    
 logData(_json);
-delay(200);
+delay(300);
 close_SD();
-delay(200);
+delay(300);
  //--------------take a photo  ------------------------------
     //if hour = 11 || hour == 3 then take picture
 takePhoto();
@@ -359,7 +359,7 @@ takePhoto();
                           // unless SYSTEM_THREAD(ENABLED). I have SYSTEM_THREAD(ENABLED);
                           //  in any case, after 5 mins of not successfuly connecting the modem
                           // will give up and stop blocking code execution
-   delay(500);
+   delay(200);
 ///   Serial.println("done the Cellular.connect() command, Waiting for Cellular.ready");
       // If the cellular modem does not successfuly connect to the cellular network in
       // 2 mins then blink blue LED and write message to serial below.

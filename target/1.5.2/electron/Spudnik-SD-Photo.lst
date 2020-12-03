@@ -1,5 +1,5 @@
 
-g:/tmp/test2/Spudnik-SD-Photo/target/1.5.2/electron/Spudnik-SD-Photo.elf:     file format elf32-littlearm
+g:/jsc/IoT/particle/Spudnik-SD-Photo/target/1.5.2/electron/Spudnik-SD-Photo.elf:     file format elf32-littlearm
 
 Sections:
 Idx Name          Size      VMA       LMA       File off  Algn
@@ -33,11 +33,11 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING
  14 .debug_macro  0004c6cd  00000000  00000000  002a1cd6  2**0
                   CONTENTS, READONLY, DEBUGGING
- 15 .debug_line   0006b542  00000000  00000000  002ee3a3  2**0
+ 15 .debug_line   0006b588  00000000  00000000  002ee3a3  2**0
                   CONTENTS, READONLY, DEBUGGING
- 16 .debug_str    000d0ffe  00000000  00000000  003598e5  2**0
+ 16 .debug_str    000d1005  00000000  00000000  0035992b  2**0
                   CONTENTS, READONLY, DEBUGGING
- 17 .debug_frame  00011710  00000000  00000000  0042a8e4  2**2
+ 17 .debug_frame  00011710  00000000  00000000  0042a930  2**2
                   CONTENTS, READONLY, DEBUGGING
 
 Disassembly of section .text:
@@ -2219,12 +2219,12 @@ void takePhoto()
 {
  8080974:	b5f0      	push	{r4, r5, r6, r7, lr}
  8080976:	b0ab      	sub	sp, #172	; 0xac
-camera_VC0706 cam(&Serial1);
+  camera_VC0706 cam(&Serial1);
  8080978:	f007 fc94 	bl	80882a4 <_Z22__fetch_global_Serial1v>
  808097c:	4601      	mov	r1, r0
  808097e:	a80d      	add	r0, sp, #52	; 0x34
  8080980:	f000 fe6b 	bl	808165a <_ZN13camera_VC0706C1EP11USARTSerial>
-// locatecamera
+  // locatecamera
   if (cam.begin()) {
  8080984:	f44f 4116 	mov.w	r1, #38400	; 0x9600
  8080988:	a80d      	add	r0, sp, #52	; 0x34
@@ -2240,7 +2240,7 @@ camera_VC0706 cam(&Serial1);
  808099c:	496d      	ldr	r1, [pc, #436]	; (8080b54 <_Z9takePhotov+0x1e0>)
  808099e:	f006 f968 	bl	8086c72 <_ZN5Print7printlnEPKc>
      }
-// Print out the camera version information (optional)
+  // Print out the camera version information (optional)
   char *reply = cam.getVersion();
  80809a2:	a80d      	add	r0, sp, #52	; 0x34
  80809a4:	f000 fec6 	bl	8081734 <_ZN13camera_VC070610getVersionEv>
@@ -2263,7 +2263,7 @@ camera_VC0706 cam(&Serial1);
  80809be:	f007 fa85 	bl	8087ecc <_Z16_fetch_usbserialv>
  80809c2:	4966      	ldr	r1, [pc, #408]	; (8080b5c <_Z9takePhotov+0x1e8>)
  80809c4:	f006 f955 	bl	8086c72 <_ZN5Print7printlnEPKc>
- delay(500);
+  delay(500);
  80809c8:	f44f 70fa 	mov.w	r0, #500	; 0x1f4
  80809cc:	f006 fad6 	bl	8086f7c <delay>
   if (! cam.takePicture()) 
@@ -2280,7 +2280,7 @@ camera_VC0706 cam(&Serial1);
  80809e4:	495f      	ldr	r1, [pc, #380]	; (8080b64 <_Z9takePhotov+0x1f0>)
  80809e6:	f006 f944 	bl	8086c72 <_ZN5Print7printlnEPKc>
 
-// setupFile
+  // setupFile
   if(! Time.isValid()) 
  80809ea:	f006 fa95 	bl	8086f18 <_ZN9TimeClass7isValidEv>
  80809ee:	4e5e      	ldr	r6, [pc, #376]	; (8080b68 <_Z9takePhotov+0x1f4>)
@@ -2298,11 +2298,11 @@ camera_VC0706 cam(&Serial1);
  8080a06:	f006 f819 	bl	8086a3c <_ZN6StringD1Ev>
           for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
-//           strcpy(fileName, "lost-time000.jpg");  
-//           fileName[9] = '0' + i/100;
+  //           strcpy(fileName, "lost-time000.jpg");  
+  //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
  8080a0a:	270a      	movs	r7, #10
-// setupFile
+  // setupFile
   if(! Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");       
@@ -2315,8 +2315,8 @@ camera_VC0706 cam(&Serial1);
  8080a16:	fb94 f3f3 	sdiv	r3, r4, r3
  8080a1a:	3330      	adds	r3, #48	; 0x30
  8080a1c:	7003      	strb	r3, [r0, #0]
-//           strcpy(fileName, "lost-time000.jpg");  
-//           fileName[9] = '0' + i/100;
+  //           strcpy(fileName, "lost-time000.jpg");  
+  //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
  8080a1e:	210a      	movs	r1, #10
  8080a20:	4851      	ldr	r0, [pc, #324]	; (8080b68 <_Z9takePhotov+0x1f4>)
@@ -2338,7 +2338,7 @@ camera_VC0706 cam(&Serial1);
           if (!sd.exists(fileName)) {  break;  }
  8080a48:	b368      	cbz	r0, 8080aa6 <_Z9takePhotov+0x132>
 
-// setupFile
+  // setupFile
   if(! Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");       
@@ -2394,14 +2394,14 @@ class StringSumHelper : public String
  8080aa2:	f005 ffcb 	bl	8086a3c <_ZN6StringD1Ev>
           ///  strcpy(fileName, hold); 
           }
-// Open the file for writing
+  // Open the file for writing
     file.open(fileName, FILE_WRITE);
  8080aa6:	6831      	ldr	r1, [r6, #0]
  8080aa8:	f244 2202 	movw	r2, #16898	; 0x4202
  8080aac:	4836      	ldr	r0, [pc, #216]	; (8080b88 <_Z9takePhotov+0x214>)
  8080aae:	f7ff fc3d 	bl	808032c <_ZN7FatFile4openEPKci>
 
-// writePhotoToFile
+  // writePhotoToFile
   // Get the size of the image (frame) taken  
     uint16_t jpglen = cam.frameLength();
  8080ab2:	a80d      	add	r0, sp, #52	; 0x34

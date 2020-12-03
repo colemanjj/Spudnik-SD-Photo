@@ -3,7 +3,7 @@
 /******************************************************/
 
 #include "Particle.h"
-#line 1 "g:/tmp/test2/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
+#line 1 "g:/jsc/IoT/particle/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
 /* A project to monitor water quality in remote locations
   Uses the Particle Electron powered by a solar panel and the LiPo battery that comes with the Electron.
   parameters include:
@@ -64,7 +64,7 @@ void close_SD();
 void watchdogHandler();
 int delayTime(String delay);
 void takePhoto();
-#line 42 "g:/tmp/test2/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
+#line 42 "g:/jsc/IoT/particle/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
 const uint8_t chipSelect = SS;  //**
 // create filename as a global variable for use in several functions
 String fileName ;       //**
@@ -787,14 +787,14 @@ int delayTime(String delay)
 //--------take Photo and store on SD--------------------------------------------
 void takePhoto()
 {
-camera_VC0706 cam(&Serial1);
-// locatecamera
+  camera_VC0706 cam(&Serial1);
+  // locatecamera
   if (cam.begin()) {
     Serial.println("Camera Found:");
   } else {
     Serial.println("No camera found?");
      }
-// Print out the camera version information (optional)
+  // Print out the camera version information (optional)
   char *reply = cam.getVersion();
   if (reply == 0) {
     Serial.print("Failed to get version");
@@ -804,20 +804,20 @@ camera_VC0706 cam(&Serial1);
     //  Serial.println("-----------------");
     }
   Serial.println("Snap in 1/2 secs...");
- delay(500);
+  delay(500);
   if (! cam.takePicture()) 
       Serial.println("Failed to snap!");
     else 
       Serial.println("Picture taken!");   
 
-// setupFile
+  // setupFile
   if(! Time.isValid()) 
         {
           fileName = String("lost-time000.jpg");       
           for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
-//           strcpy(fileName, "lost-time000.jpg");  
-//           fileName[9] = '0' + i/100;
+  //           strcpy(fileName, "lost-time000.jpg");  
+  //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
             fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
@@ -829,10 +829,10 @@ camera_VC0706 cam(&Serial1);
            fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
           ///  strcpy(fileName, hold); 
           }
-// Open the file for writing
+  // Open the file for writing
     file.open(fileName, FILE_WRITE);
 
-// writePhotoToFile
+  // writePhotoToFile
   // Get the size of the image (frame) taken  
     uint16_t jpglen = cam.frameLength();
     Serial.print(jpglen, DEC);
