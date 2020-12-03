@@ -51,7 +51,7 @@ SdFile file;            //**
 ArduinoOutStream cout(Serial);
 // for camera-------------------------------
 #include "camera_VC0706.h"
-camera_VC0706 cam(&Serial1);
+//camera_VC0706 cam(&Serial1);
 ///camera_VC0706 cam = camera_VC0706(&Serial1);
 //-------------------------------
 #include "sensitive_definitions.h"  // this file contains ubidots token definition
@@ -339,89 +339,16 @@ void loop() {
     snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %04.2f",
                           t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
    
-      logData(_json);
-      delay(200);
-      close_SD();
-      delay(200);
- /* 
+logData(_json);
+delay(200);
+close_SD();
+delay(200);
  //--------------take a photo  ------------------------------
     //if hour = 11 || hour == 3 then take picture
 takePhoto();
-savePhoto();
-*/
-//--------------------------------------------------------------------------------
-// Try to locate the camera
-  if (cam.begin()) {
-    Serial.println("Camera Found:");
-  } else {
-    Serial.println("No camera found?");
-     }
-// Print out the camera version information (optional)
-  char *reply = cam.getVersion();
-  if (reply == 0) {
-    Serial.print("Failed to get version");
-  } else {
-  //  Serial.println("-----------------");
-    Serial.print(reply);
-  //  Serial.println("-----------------");
-  }
-  
-  Serial.println("Snap in 1/2 secs...");
- delay(500);
-  if (! cam.takePicture()) 
-    Serial.println("Failed to snap!");
-  else 
-    Serial.println("Picture taken!");   
-
-  if(! Time.isValid()) 
-        {
-          fileName = String("lost-time000.jpg");       
-          for (int i = 0; i < 1000; i++) {
-            fileName.String::operator[](9) = '0' + i/100;
-//           strcpy(fileName, "lost-time000.jpg");  
-//           fileName[9] = '0' + i/100;
-            fileName.String::operator[](10) = '0' + i/10;
-            fileName.String::operator[](11) = '0' + i%10;
-            // create if does not exist, do not open existing, write, sync after write
-          if (!sd.exists(fileName)) {  break;  }
-          }
-        }
-        else
-          {
-           fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
-          ///  strcpy(fileName, hold); 
-          }
-
-  // Open the file for writing
-    file.open(fileName, FILE_WRITE);
-  // Get the size of the image (frame) taken  
-    uint16_t jpglen = cam.frameLength();
-    Serial.print(jpglen, DEC);
-    Serial.print(" byte image. ");
-    Serial.println(fileName);
-
-    int32_t time = millis();
-    pinMode(8, OUTPUT);
-  // Read all the data up to # bytes!
-    byte wCount = 0; // For counting # of writes
-    while (jpglen > 0) {
-      // read 32 bytes at a time;
-      uint8_t *buffer;
-      uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
-      buffer = cam.readPicture(bytesToRead);
-      file.write(buffer, bytesToRead);
-      if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
-      //  Serial.print('.');
-        Blink();
-        wCount = 0;
-      }
-      jpglen -= bytesToRead;
-    }
-    file.close();
-      time = millis() - time;
-      Serial.print(time); Serial.println(" ms elapsed");
-    cout <<  F("\nList of files on the SD.\n");
-    (sd.ls("/", LS_R) );
+//list files on SD to terminal
+  cout <<  F("\nList of files on the SD.\n");
+  (sd.ls("/", LS_R) );
 
 //----------------------------------------------------------------------------------
 // This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
@@ -831,3 +758,79 @@ int delayTime(String delay)
     else 
       {seconds=5; return -1; }
   }
+//--------take Photo and store on SD--------------------------------------------
+void takePhoto()
+{
+camera_VC0706 cam(&Serial1);
+// locatecamera
+  if (cam.begin()) {
+    Serial.println("Camera Found:");
+  } else {
+    Serial.println("No camera found?");
+     }
+// Print out the camera version information (optional)
+  char *reply = cam.getVersion();
+  if (reply == 0) {
+    Serial.print("Failed to get version");
+    } else {
+    //  Serial.println("-----------------");
+      Serial.print(reply);
+    //  Serial.println("-----------------");
+    }
+  Serial.println("Snap in 1/2 secs...");
+ delay(500);
+  if (! cam.takePicture()) 
+      Serial.println("Failed to snap!");
+    else 
+      Serial.println("Picture taken!");   
+
+// setupFile
+  if(! Time.isValid()) 
+        {
+          fileName = String("lost-time000.jpg");       
+          for (int i = 0; i < 1000; i++) {
+            fileName.String::operator[](9) = '0' + i/100;
+//           strcpy(fileName, "lost-time000.jpg");  
+//           fileName[9] = '0' + i/100;
+            fileName.String::operator[](10) = '0' + i/10;
+            fileName.String::operator[](11) = '0' + i%10;
+            // create if does not exist, do not open existing, write, sync after write
+          if (!sd.exists(fileName)) {  break;  }
+          }
+        }
+        else
+          {
+           fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
+          ///  strcpy(fileName, hold); 
+          }
+// Open the file for writing
+    file.open(fileName, FILE_WRITE);
+
+// writePhotoToFile
+  // Get the size of the image (frame) taken  
+    uint16_t jpglen = cam.frameLength();
+    Serial.print(jpglen, DEC);
+    Serial.print(" byte image. ");
+    Serial.println(fileName);
+
+    int32_t time = millis();
+    pinMode(8, OUTPUT);
+  // Read all the data up to # bytes!
+    byte wCount = 0; // For counting # of writes
+    while (jpglen > 0) {
+      // read 32 bytes at a time;
+      uint8_t *buffer;
+      uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
+      buffer = cam.readPicture(bytesToRead);
+      file.write(buffer, bytesToRead);
+      if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
+      //  Serial.print('.');
+        Blink();
+        wCount = 0;
+      }
+      jpglen -= bytesToRead;
+    }
+    file.close();
+      time = millis() - time;
+      Serial.print(time); Serial.println(" ms elapsed");
+}
