@@ -35,6 +35,7 @@
   to serial, tries 1 more minute and then goes back to sleep.
 
 */
+// @ts-check
 // for logging to SD------------
 #include <SPI.h>        //**
 #include <SdFat.h>      //**
@@ -114,9 +115,13 @@ D3 = power for digital sensors (BME280, )
 // D6 = power for 2nd analog sensor (TDS)  not needed, TDS runs off of B1
 D7 = ledPin  to flash LED
 
-//A0 = analog pin for depth sensor   //not needed when using the BME in oil depth sensor
-A5 = analog pin for rain sensor
-A2 = analog pin for TDS/Sp.C sensor
+A0 = analog pin for TDS sensor
+A1 = analog pin for rain sensor
+
+A2 = analog pin for SPI (SS/SPI)   connected to mini-SD-card  CS
+A3 = analog pin for SPI (SCK)   connected to mini-SD-card  SCK
+A4 = analog pin for SPI (MISO)  connected to mini-SD-card  D0
+A5 = analog pin for SPI (MOSI)  connected to mini-SD-card  D1
 
 B0 = used as digital power pin to supply 3.3 volts to RAIN analog sensor
 B1 = used as digital power pin to supply 3.3 volts to TDS analog sensor
@@ -142,13 +147,15 @@ void setup() {
 	pinMode(D3, OUTPUT);     // power for the all digital sensors
 	digitalWrite(D3, HIGH);
                               //activate the Electron internal pullup resistor but also have a 4.7Kohm pullup on the board
-//	pinMode(D6, OUTPUT);     // power for 2nd analog sensor nt needed because TDS powered off B1
-//	digitalWrite(D6, HIGH);
+	pinMode(D5, OUTPUT);     // power for SD-card and camera
+	digitalWrite(D5, HIGH);
 
 	pinMode(B0, OUTPUT);     // power for analog rain sensor
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
+  pinMode(B2, OUTPUT);     // power for analog TDS sensor
+  digitalWrite(B2, HIGH);	//
 	delay(500);   // delay to give time for power to turn on, don't know if this is needed
 
   //ubidots.setDatasourceName(DATA_SOURCE_NAME); //This name will automatically show up in Ubidots the first time you post data.
@@ -240,7 +247,7 @@ void setup() {
 
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
-                  //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt
+                  //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt   check which bme has SD0 held high
     {
 ///      Serial.println("Could not find 1st valid BME280 sensor, check wiring!");
       Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
@@ -310,19 +317,26 @@ void loop() {
     float Sp_C = getSpC() * k;
     float Avolts = getAvolts();
 // turn off sensor POWER pins after sensors are read
-        digitalWrite(D3, LOW);	 // for the digital sensors, BME280s
+        digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  and camera
       //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
     ///digitalWrite(B0, LOW);	// for the rain sensor
-        digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor
+        digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor  
+ //        digitalWrite(D5, LOW);	 // for the  camera
+        
 ///char context[90];
 //sprintf(context, "tries=%02i", ii);
 // add values to que of data to be uploaded to Ubidots
 ///	ubidots.add("time(UTC)",Time.now()/60);
+
+//char Rain = "Rain";
+char Rain[] = "Rain";
+char AirT[] = "Air-Temp_C";
+char Humid[] = "Humidity_%";
   float depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
 
-  ubidots.add("Rain", rain);
-	ubidots.add("Humidity_%", h1);
-	ubidots.add("Air-Temp_C", t1);
+  ubidots.add(Rain, rain);
+	ubidots.add(Humid, h1);
+	ubidots.add(AirT, t1);
   ubidots.add("Pressure_hPA", p1);
   ubidots.add("H2O-Temp_C", t2);
   ubidots.add("H2O_hPA", p2);
@@ -336,9 +350,8 @@ void loop() {
 
 //  write the data to a SD card before trying to connect
   char _json[256];
-    snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %04.2f",
-                          t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
-   
+    snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
+                          t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
 logData(_json);
 delay(300);
 close_SD();
@@ -350,6 +363,8 @@ takePhoto();
   cout <<  F("\nList of files on the SD.\n");
   (sd.ls("/", LS_R) );
 
+// turn off  POWER pins after SD-card and camera are done
+digitalWrite(B2, LOW);     //for the camera and SD-card
 //----------------------------------------------------------------------------------
 // This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
    //Serial.println("just prior to the Cellular.connect() command");
@@ -386,7 +401,7 @@ takePhoto();
             // if can't connect for a second time, go to deep sleep for
             // for "minutes" minutes and on wake the program starts from the beginning
           }
-   Serial.println("passed the Cellular.ready test");
+ ///  Serial.println("passed the Cellular.ready test");
    Particle.connect();
 /// if(Particle.connected()) { wDog.checkin();  } // resets the ApplicationWatchdog count if connected
 ///   if(Particle.connected()) {  
@@ -417,13 +432,17 @@ takePhoto();
     waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
 
     UploadBlink();
-    sprintf(publishStr, "%s, t1_offset, t2_offset, k_correction, A.volts, Wtemp, Depth_in, %05.2f, %05.2f, %05.2f, %05.3f, %05.2f, %06.3f",
-                    works, t1_offset, t2_offset, k, Avolts, t2, depth);
+    sprintf(publishStr, 
+    "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
+              works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
       Particle.publish(unit_name, publishStr, 60, PRIVATE);
     delay(500);
   //  char _json[256];
-    snprintf(_json, sizeof(_json), "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-                          t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+//    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+//                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+    snprintf(_json, sizeof(_json), 
+    "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+               t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
       Particle.publish("data", _json, PRIVATE);
     delay(500);
     Serial.println("finished uploading");
@@ -710,9 +729,10 @@ void setup_SD()
 //------------------------------------------------------------------------------
 // Write data header.
 void writeHeader()
-    {
-        file.print(F("datetime, t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts"));
-        file.println();
+  {
+    //  file.print(F("datetime, t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts"));
+    file.print(F("datetime, Atemp, H2Otemp, Sp_C , Avolts, rain, depth_in, humid, Apressure, H2Opressure, SoC, volts"));
+    file.println();
     }
 //------------------------------------------------------------------------------
 // Log a data record.
@@ -752,7 +772,7 @@ void watchdogHandler()
 
 int delayTime(String delay)
   { if(delay == "long")
-      {seconds=120;   // creat enough delay time to flash the unit
+      {seconds=180;   // creat enough delay time to flash the unit
        Particle.publish("Particle", "in delayTime",60,PRIVATE);
        return 1; }
     else 
@@ -771,7 +791,7 @@ void takePhoto()
   // Print out the camera version information (optional)
   char *reply = cam.getVersion();
   if (reply == 0) {
-    Serial.print("Failed to get version");
+ ///   Serial.print("Failed to get version");
     } else {
     //  Serial.println("-----------------");
       Serial.print(reply);
