@@ -72,12 +72,13 @@ CE_BME280 bme2; // I2C   for WATER temp. & pressure
 SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flash remotely, tried automatic then set back to semi-automatic
 //The only main difference between SEMI_AUTOMATIC mode and AUTOMATIC mode is that for semi-automatic
     // Particle.connect() is not called at the beginning of your code;  With semi-automatic you must call Particle.connect() yourself
-SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
+///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
 //#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
 #define DATA_SOURCE_NAME "Spudnik-08b"
 //--#define unit_name "Spudnik-08b"
 String unit_name = "Spudnik-08b";
 #define code_name "particlesolar30c"
+///SerialLogHandler logHandler;
 
 ApplicationWatchdog *wd;
 
@@ -154,8 +155,9 @@ void setup() {
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
-  pinMode(B2, OUTPUT);     // power for analog TDS sensor
-  digitalWrite(B2, HIGH);	//
+  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card
+  digitalWrite(B2, HIGH);	//      
+
 	delay(500);   // delay to give time for power to turn on, don't know if this is needed
 
   //ubidots.setDatasourceName(DATA_SOURCE_NAME); //This name will automatically show up in Ubidots the first time you post data.
@@ -163,7 +165,7 @@ void setup() {
 // Initalize the PMIC class so you can call the Power Management functions below.
   // Particle.publish("PMIC", "setting charge in setup",60,PRIVATE);
   PMIC pmic;
-  /// pmic.setInputCurrentLimit(150);
+  // pmic.setInputCurrentLimit(150);
   /*******************************************************************************
     Function Name : setInputCurrentLimit
     Description : Sets the input current limit for the PMIC
@@ -244,7 +246,23 @@ void setup() {
   *******************************************************************************
    bool PMIC::setChargeVoltage(uint16_t voltage) {.......................
  *******************************************************************************/
+/*
+// Apply a custom power configuration
+    SystemPowerConfiguration conf;
 
+    conf.powerSourceMaxCurrent(1024)   //default 900 mA. Set maximum current the power source can provide when powered through VIN.
+        .powerSourceMinVoltage(4840)  //default 3880 (3.88 v). Set minimum voltage required for VIN to be used. 
+        .batteryChargeCurrent(1024)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
+        .batteryChargeVoltage(3280) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
+        .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
+
+    ///Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
+    int res = System.setPowerConfiguration(conf); 
+    Log.info("setPowerConfiguration=%d", res);
+    // returns SYSTEM_ERROR_NONE (0) in case of success
+    // Settings are persisted, you normally wouldn't do this on every startup.
+  // pmic.disableCharging();
+*/
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
                   //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt   check which bme has SD0 held high
@@ -258,8 +276,7 @@ void setup() {
 ///        Serial.println("Could not find 2nd valid BME280 sensor, check wiring!");
         Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
       }
-// setup the SD for logging the data
- setup_SD();
+
   // register a Particle cloud Function.  "Delay" is used from the Particle console to set the delay 
      // to "long", i.e. delay of 120 seconds for OTA software uploads. otherwise delay defaults to 2 seconds.
   Particle.function("Delay", delayTime);
@@ -276,7 +293,36 @@ void loop() {
   float volts = fuel.getVCell();
   float SoC = -99;
   SoC = fuel.getSoC();
-//SoC = System.batteryCharge();
+//SoC = System.batteryCharge();    
+/*
+{
+        PMIC power(true);
+        Log.info("Current PMIC settings:");
+        Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
+        Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
+        Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
+        Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
+
+        int powerSource = System.powerSource();
+        int batteryState = System.batteryState();
+        float batterySoc = System.batteryCharge();
+
+        constexpr char const* batteryStates[] = {
+            "unknown", "not charging", "charging",
+            "charged", "discharging", "fault", "disconnected"
+        };
+        constexpr char const* powerSources[] = {
+            "unknown", "vin", "usb host", "usb adapter",
+            "usb otg", "battery"
+        };
+
+        Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
+        Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
+        Log.info("Battery charge: %f", batterySoc);
+    }
+*/
+// setup the SD for logging the data
+ setup_SD();
   
 //  set the deep sleep time based on the battery charge
  minutes = checkBattery(SoC,volts);
@@ -356,16 +402,24 @@ logData(_json);
 delay(300);
 close_SD();
 delay(300);
+/*
  //--------------take a photo  ------------------------------
-    //if hour = 11 || hour == 3 then take picture
-takePhoto();
+if ((SoC > 60.0) && ((Time.hour() == 13) || (Time.hour() == 19))) 
+*/
+  {  
+//    waitSec(0.5);
+    takePhoto(); 
+  }
+  waitSec(1);
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
   (sd.ls("/", LS_R) );
 
+digitalWrite(B2, LOW);     //disconnect ground for the SD-card & camera
 // turn off  POWER pins after SD-card and camera are done
-digitalWrite(B2, LOW);     //for the camera and SD-card
-//----------------------------------------------------------------------------------
+  sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
+
+/*//----------------------------------------------------------------------------------
 // This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
    //Serial.println("just prior to the Cellular.connect() command");
    //delay(100);
@@ -386,26 +440,28 @@ digitalWrite(B2, LOW);     //for the camera and SD-card
             WeakSignalBlink();
             Serial.println("Difficulty connecting. Will try for 1 more min");
             delay(500);
-         }
+         }   
       // check a second time to make sure it is connected, if not, try for 1 more minute
       if (!waitFor(Cellular.ready, a_minute * 0.5))
          {
             WeakSignalBlink();
             delay(500);
             WeakSignalBlink();
-            sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
-           Serial.print("Difficulty connecting sleeping");   Serial.println(publishStr);
+               sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
+                Serial.print("Difficulty connecting, sleeping");   Serial.println(publishStr);
             delay(500);
             //System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval*minutes);
             System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);
             // if can't connect for a second time, go to deep sleep for
             // for "minutes" minutes and on wake the program starts from the beginning
-          }
+          }       
  ///  Serial.println("passed the Cellular.ready test");
    Particle.connect();
 /// if(Particle.connected()) { wDog.checkin();  } // resets the ApplicationWatchdog count if connected
 ///   if(Particle.connected()) {  
+  
       wd->checkin();  
+      
       Particle.publish("particle", "connected",60,PRIVATE);
       Serial.println("connected");
  ///     } // resets the ApplicationWatchdog count if connected
@@ -452,19 +508,12 @@ digitalWrite(B2, LOW);     //for the camera and SD-card
     waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
                           // of "long" to function "delay" frpm Particle console
     waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
-/*
- if(System.updatesPending())
-    {
-      readyForOTA(30000);  // if OTA flash pending wait 30 seconds more to complete.  Not sure if this works.
-      sprintf(publishStr, "sleeping %2i minutes", minutes+1);
-    }
-  else {
-    */
  // send message to particle console
     sprintf(publishStr, "sleeping %2i minutes", minutes);
     sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
       Particle.publish(event_name, publishStr,60,PRIVATE);
     waitSec(2); //wait 2 more seconds
+    */ //*************************************
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
@@ -560,11 +609,11 @@ void UploadBlink()
            //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
                 {
                  min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                  if (charge>25 )   min = 300;    // 5 hours (300 min)
-                     if (charge>50 )   min = 120;     // 2 hours (120 min)
-                         if (charge>65 )   min = 90;   // 1 hours (60 min)
-                                 if (charge>75 )   min = 60;     // 30 minutes
-                                     if (charge>80 )   min = 30;      // 15 minutes;
+                  if (charge>25 )   min = 4;    // 5 hours (300 min)
+                     if (charge>50 )   min = 2;     // 2 hours (120 min)
+                         if (charge>65 )   min = 2;   // 1.5 hours (90 min)
+                                 if (charge>75 )   min = 1;     // 60 minutes
+                                     if (charge>80 )   min = 1;      // 30 minutes;
                    // after sleep time is set based on battery charge, go on to read sensors and report to internet
                  }
                 else
@@ -696,7 +745,7 @@ inline void waitSec(uint32_t seconds) {
 void setup_SD()
     {
       //char works[3];
-       if (!sd.begin(chipSelect, SD_SCK_MHZ(30))) {  sprintf(works,"No ");   }
+       if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
           else { sprintf(works,"Yes "); }
         Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
         //if(Time.year() < 2020)
@@ -744,6 +793,7 @@ void logData(char data[256])
         delay(500);
         file.print(data);
         file.println();
+ ///       Serial.println(data);
     }
 //--------------------------------------------------------------------------------
 //close down the SD card
@@ -755,9 +805,20 @@ void close_SD()
         //  if (Serial.available()) {
         // Close file and stop.
         file.flush();
+        waitMS(200);
         file.close();
-      sprintf(publishStr, "SD-write worked: %s", works);
-        Serial.println((publishStr));
+        /*
+      if ( file.close() )  {
+        sprintf(publishStr, "SD-write worked at %s", 
+                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+         Serial.println((publishStr));
+        }
+        else {
+        sprintf(publishStr, "SD-write FAILED at %s", 
+                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+         Serial.println((publishStr));
+        }
+      */
     }
 
 void watchdogHandler() 
