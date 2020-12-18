@@ -78,7 +78,7 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 //--#define unit_name "Spudnik-08b"
 String unit_name = "Spudnik-08b";
 #define code_name "particlesolar30c"
-///SerialLogHandler logHandler;
+SerialLogHandler logHandler;
 
 ApplicationWatchdog *wd;
 
@@ -90,8 +90,8 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
   #define t2_offset  -0.60 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
   #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
 //*****************************************************
-  char publishStr[30];
-  char works[4];
+  char publishStr[80]; /// was 30
+  char works[5];  /// was 4
   const int      MAXRETRY          = 4;
   int      ii          = 0;
 //initialize for BME280 bme2 AIR temp, humidity, pressure readings
@@ -126,6 +126,8 @@ A5 = analog pin for SPI (MOSI)  connected to mini-SD-card  D1
 
 B0 = used as digital power pin to supply 3.3 volts to RAIN analog sensor
 B1 = used as digital power pin to supply 3.3 volts to TDS analog sensor
+B2 = used as a digital signal pin to switch a NpN transister to turn on/off ground 
+        for SD-card and camera
 */
 //int DepthPin = A0;  //unused analog depth sensor
 int RainPin = A1;
@@ -155,8 +157,6 @@ void setup() {
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
-  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card
-  digitalWrite(B2, HIGH);	//      
 
 	delay(500);   // delay to give time for power to turn on, don't know if this is needed
 
@@ -164,7 +164,7 @@ void setup() {
 
 // Initalize the PMIC class so you can call the Power Management functions below.
   // Particle.publish("PMIC", "setting charge in setup",60,PRIVATE);
-  PMIC pmic;
+PMIC pmic;
   // pmic.setInputCurrentLimit(150);
   /*******************************************************************************
     Function Name : setInputCurrentLimit
@@ -177,7 +177,7 @@ void setup() {
      This will be overridden if the input voltage drops out and comes back though (with something like a solar cell)
      and it will be set back to the default 900mA level. To counteract that you could set it in a Software Timer every 60 seconds or so.
     *******************************************************************************/
- pmic.setChargeCurrent(0, 0, 1, 0, 0, 0);      // Set charging current to 1024mA (512 + 512 offset)    //???????? is this good idea?
+pmic.setChargeCurrent(0, 0, 1, 0, 0, 0);      // Set charging current to 1024mA (512 + 512 offset)    //???????? is this good idea?
     //pmic.setChargeCurrent(0, 0, 0, 0, 1, 0);  // Set charging current to 640mA (512 + 128)
   /* Function Name  : setChargeCurrent  // from spark_wiring_power.cpp
      @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
@@ -194,8 +194,8 @@ void setup() {
                     setChargeCurrent(0,0,1,1,1,0) will set the charge current to
                     512mA + [0+0+512mA+256mA+128mA+0] = 1408mA
     */
- // Set the lowest input voltage to 4.84 volts. This keeps the solar panel from operating below 4.84 volts.
- pmic.setInputVoltageLimit(4840);  //  taken from code suggested by RyanB in the https://community.particle.io forum
+  // Set the lowest input voltage to 4.84 volts. This keeps the solar panel from operating below 4.84 volts.
+pmic.setInputVoltageLimit(4840);  //  taken from code suggested by RyanB in the https://community.particle.io forum
       // see: https://community.particle.io/t/pmic-only-sometimes-not-charging-when-battery-voltage-is-below-3-5v/30346
   //      pmic.setInputVoltageLimit(4040); //to get some charge in low light? not sure this helps
   ///pmic.setInputVoltageLimit(5080);
@@ -221,8 +221,8 @@ void setup() {
                     5080
   * Return         : 0 Error, 1 Success
  *******************************************************************************/
- //pmic.setChargeVoltage(4512);  // for sealed lead-acit (SLA) battery. may not be implemented in spark_wiring_power.cpp
- pmic.setChargeVoltage(4208); // set upper limit on charge voltage. this limits the
+  //pmic.setChargeVoltage(4512);  // for sealed lead-acit (SLA) battery. may not be implemented in spark_wiring_power.cpp
+pmic.setChargeVoltage(4208); // set upper limit on charge voltage. this limits the
   // max charge that will be given to the battery.
   // default is 4112 in Particle Electron which gives 80% charge. set to 4208 to get charge to go up to 90%
   /*******************************************************************************
@@ -246,7 +246,7 @@ void setup() {
   *******************************************************************************
    bool PMIC::setChargeVoltage(uint16_t voltage) {.......................
  *******************************************************************************/
-/*
+
 // Apply a custom power configuration
     SystemPowerConfiguration conf;
 
@@ -257,12 +257,12 @@ void setup() {
         .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
 
     ///Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
-    int res = System.setPowerConfiguration(conf); 
-    Log.info("setPowerConfiguration=%d", res);
+  ///  int res = System.setPowerConfiguration(conf); 
+  ///  Log.info("setPowerConfiguration=%d", res);
     // returns SYSTEM_ERROR_NONE (0) in case of success
     // Settings are persisted, you normally wouldn't do this on every startup.
   // pmic.disableCharging();
-*/
+
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
                   //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt   check which bme has SD0 held high
@@ -392,7 +392,10 @@ char Humid[] = "Humidity_%";
    //if (t2 > -99.0)   // if reading water temperature was successful, send temp and Sp_Cond to Ubidots
   ubidots.add("Sp_Cond", Sp_C);
   ubidots.add("A.volts", Avolts);
-  
+
+//------------------ log data and take photo-------------------------------------------------
+pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card
+digitalWrite(B2, HIGH);	//      
 
 //  write the data to a SD card before trying to connect
   char _json[256];
@@ -402,15 +405,14 @@ logData(_json);
 delay(300);
 close_SD();
 delay(300);
-/*
- //--------------take a photo  ------------------------------
-if ((SoC > 60.0) && ((Time.hour() == 13) || (Time.hour() == 19))) 
-*/
+
+ //--------------take a photo  --------------------
+if ((SoC > 60.0) && ((Time.hour() == 13) || (Time.hour() == 15) || (Time.hour() == 17))) 
   {  
 //    waitSec(0.5);
     takePhoto(); 
   }
-  waitSec(1);
+  waitSec(0.5);
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
   (sd.ls("/", LS_R) );
@@ -418,6 +420,7 @@ if ((SoC > 60.0) && ((Time.hour() == 13) || (Time.hour() == 19)))
 digitalWrite(B2, LOW);     //disconnect ground for the SD-card & camera
 // turn off  POWER pins after SD-card and camera are done
   sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
+//--------------------------------------------------------------------------------------------
 
 /*//----------------------------------------------------------------------------------
 // This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
@@ -527,205 +530,206 @@ digitalWrite(B2, LOW);     //disconnect ground for the SD-card & camera
 //------------------------------ Functions --------------------------------------------------
 //
 void Blink()
-     {
-          for (size_t i = 0; i < 1; i++)
-          {
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(20);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);   // Sets the LED on
-            delay(5);
-          }
-     }
+    {
+        for (size_t i = 0; i < 1; i++)
+        {
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(20);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED on
+          delay(5);
+        }
+    }
+
 void LowBattBlink() //slow blink blue twice
-     {
-          for (size_t i = 0; i < 2; i++)
-          {
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(2000);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);   // Sets the LED on
-            delay(2000);
-          }
-     }
+    {
+        for (size_t i = 0; i < 2; i++)
+        {
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(2000);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED on
+          delay(2000);
+        }
+    }
 
 void WeakSignalBlink()
-     {
-          for (size_t i = 0; i < 10; i++)
-          {
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(150);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);    // Sets the LED off
-            delay(150);
-          }
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(550);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);    // Sets the LED off
-     }
+    {
+        for (size_t i = 0; i < 10; i++)
+        {
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(150);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);    // Sets the LED off
+          delay(150);
+        }
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(550);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);    // Sets the LED off
+    }
 
 void UploadBlink()
-     {
-          for (size_t i = 0; i < 1; i++)
-          {
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(500);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);   // Sets the LED on
-            delay(1000);
-          }
-          for (size_t i = 0; i < 4; i++)
-          {
-            digitalWrite(ledPin, HIGH);   // Sets the LED on
-            delay(50);                   // Waits for a sec
-            digitalWrite(ledPin, LOW);   // Sets the LED on
-            delay(50);
-          }
-     }
+    {
+        for (size_t i = 0; i < 1; i++)
+        {
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(500);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED on
+          delay(1000);
+        }
+        for (size_t i = 0; i < 4; i++)
+        {
+          digitalWrite(ledPin, HIGH);   // Sets the LED on
+          delay(50);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED on
+          delay(50);
+        }
+    }
 // set sleep time based on battery charge----------------------------
-     int checkBattery(float charge,float V)
-       {
-           /*  if (SoC <15) {
-                    //LowBattBlink();
-                    LowBattBlink();
-            ///   PMIC pmic;
-                    pmic.disableBATFET();
-                    // turns off the battery. Unit will still run if power is supplied to VIN,
-                        // i.e. a solar panel+light
-                    // unit will stay on programed schedule of waking if power to VIN maintained
-                    // if no power to VIN, i.e. no light, then unit stays off
-                    // if power re-applied to VIN, unit boots up, disables battery again but continues with
-                        //program, including reporting to web
-                    // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
-                    // this will:
-                        //--disable battery if SOC is very low
-                        //--wake and run the unit if solar powers VIN
-                        //--run on programed schedule if solar powers VIN constantly
-                        //--charge the battery if solar powers VIN
-                        //--be skipped if power to VIN brings battery charge above 15%
-                   }
-    */
-         int min;
-         if (charge>12.5)   //  testing seems to indicate unit stops connecting to internet when too low
-           // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
-           // discharging the Electron completely can render it "bricked".
-           //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
-           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
-                {
-                 min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                  if (charge>25 )   min = 4;    // 5 hours (300 min)
-                     if (charge>50 )   min = 2;     // 2 hours (120 min)
-                         if (charge>65 )   min = 2;   // 1.5 hours (90 min)
-                                 if (charge>75 )   min = 1;     // 60 minutes
-                                     if (charge>80 )   min = 1;      // 30 minutes;
-                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
-                 }
-                else
-                { // if battery below 12.5%, don't even try to connect but go to sleep for 9 hours
-                   min = 432000;   // sleep 5 days if battery very low
-              //   sprintf(publishStr, "not connecting, sleeping for %2i min to charge battery ", min);
-              //     Serial.println(publishStr);
-                   LowBattBlink();
-                   System.sleep(SLEEP_MODE_DEEP, sleepInterval * min);
-                 }
-           return min;
-       }  // end of checkBattery
+int checkBattery(float charge,float V)
+      {
+      /*  if (SoC <15) {
+          //LowBattBlink();
+          LowBattBlink();
+      ///   PMIC pmic;
+          pmic.disableBATFET();
+          // turns off the battery. Unit will still run if power is supplied to VIN,
+              // i.e. a solar panel+light
+          // unit will stay on programed schedule of waking if power to VIN maintained
+          // if no power to VIN, i.e. no light, then unit stays off
+          // if power re-applied to VIN, unit boots up, disables battery again but continues with
+              //program, including reporting to web
+          // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
+          // this routine will:
+              //--disable battery if SOC is very low
+              //--wake and run the unit if solar powers VIN
+              //--run on programed schedule if solar powers VIN constantly even if batt < 15%
+              //--charge the battery if solar powers VIN
+              //--be skipped if power to VIN brings battery charge above 15%
+          }
+      */
+        int min;
+        if (charge>12.5)   //  testing seems to indicate unit stops connecting to internet when too low
+          // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
+          // discharging the Electron completely can render it "bricked".
+          //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
+          //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
+              {
+                min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
+                if (charge>25 )   min = 4;    // 5 hours (300 min)
+                    if (charge>50 )   min = 2;     // 2 hours (120 min)
+                        if (charge>65 )   min = 2;   // 1.5 hours (90 min)
+                                if (charge>75 )   min = 1;     // 60 minutes
+                                    if (charge>80 )   min = 1;      // 30 minutes;
+                  // after sleep time is set based on battery charge, go on to read sensors and report to internet
+                }
+              else
+              { // if battery below 12.5%, don't even try to connect but go to sleep for 9 hours
+                  min = 432000;   // sleep 5 days if battery very low
+            //   sprintf(publishStr, "not connecting, sleeping for %2i min to charge battery ", min);
+            //     Serial.println(publishStr);
+                  LowBattBlink();
+                  System.sleep(SLEEP_MODE_DEEP, sleepInterval * min);
+                }
+          return min;
+      }  // end of checkBattery
 
 // get SpC value from sensor----------------------------------------------
-  float getSpC()
-   {
+float getSpC()
+    {
+        #define VREF 3.3      // analog reference voltage(Volt) of the ADC
+        #define SCOUNT  40           // number of sample points to collect for averaging
+        #define resolution 4095.0  // analog resolution of 4095 with Particle electron
+        int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
+        int analogBufferTemp[SCOUNT];
+        int analogBufferIndex = 0,  copyIndex = 0;
+        float averageVoltage = 0;
+        float SpC = -1.1;
+
+        while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
+          {
+            analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
+            analogBufferIndex++;
+    //         if(analogBufferIndex == SCOUNT)
+              delay(50u);  //delay 50 milliseconds between taking sample
+          }
+        analogBufferIndex = 0;
+
+        for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1
+                  analogBufferTemp[copyIndex]= analogBuffer[copyIndex]; // copy analogBuffer to analogBufferTemp
+        averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF / resolution; // read the analog value,
+                                              // remember particle board has analog resolution of 4095
+                                              //made more stable by the median filtering algorithm, and convert to voltage value
+    ///      Serial.print(t2);   // temperature comes from a different sensor, outside this function.
+    ///      Serial.println(" deg.C at start");
+    ///      Serial.print("median analog reading= "); Serial.println(getMedianNum(analogBufferTemp,SCOUNT));
+    ///      Serial.print("averageVoltage= "); Serial.println(averageVoltage);
+        float compensationCoefficient=1.0+0.019*(t2-25.0);    //temperature compensation formula: 0.019 used by YSI
+                  //fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+    // coefficients given by DFROBOT on their webpage.  Error in that the temp. compensation. should be after using the equation
+    /* TDS=(133.42*compensationVolatge*compensationVolatge*compensationVolatge
+              - 255.86*compensationVolatge*compensationVolatge
+              + 857.39*compensationVolatge)*0.5*K; //convert voltage value to tds value and multiply by calibration K.
+  */
+    // coefficients for the following equation derived from calibration to
+    // hundreds of specific conductance readings taken at SandL04 by an Onset logger running in parallel with the Spudnik
+        SpC= ( 18.835*averageVoltage*averageVoltage*averageVoltage
+              + 24.823*averageVoltage*averageVoltage
+              + 624.194*averageVoltage) /compensationCoefficient; //compensationCoefficient //convert voltage value to SpC value, then correct for temp
+
+      //  Serial.print("SpC Value: ");
+      //  Serial.println(SpC,2);
+        return SpC;  //adjust SpC by correction factor
+    }  // end of getSpC
+
+// get averageVolts value from sensor.  -----------------------------------------------
+      //  This can be sent to Ubidots for use later to calculate Specific Conductance
+float getAvolts()
+    {
       #define VREF 3.3      // analog reference voltage(Volt) of the ADC
       #define SCOUNT  40           // number of sample points to collect for averaging
       #define resolution 4095.0  // analog resolution of 4095 with Particle electron
       int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
       int analogBufferTemp[SCOUNT];
-      int analogBufferIndex = 0,  copyIndex = 0;
+      int analogBufferIndex = 0, copyIndex = 0;
       float averageVoltage = 0;
-      float SpC = -1.1;
 
       while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
         {
-           analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
-           analogBufferIndex++;
-  //         if(analogBufferIndex == SCOUNT)
+            analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
+            analogBufferIndex++;
+    //         if(analogBufferIndex == SCOUNT)
             delay(50u);  //delay 50 milliseconds between taking sample
         }
-      analogBufferIndex = 0;
-
-      for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1
-                 analogBufferTemp[copyIndex]= analogBuffer[copyIndex]; // copy analogBuffer to analogBufferTemp
+        // copy one array to another
+      for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1  // old way of copying an array
+          {
+              analogBufferTemp[copyIndex]= analogBuffer[copyIndex];   // copy analogBuffer to analogBufferTemp
+          }
       averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF / resolution; // read the analog value,
-                                            // remember particle board has analog resolution of 4095
-                                            //made more stable by the median filtering algorithm, and convert to voltage value
-///      Serial.print(t2);   // temperature comes from a different sensor, outside this function.
-///      Serial.println(" deg.C at start");
-///      Serial.print("median analog reading= "); Serial.println(getMedianNum(analogBufferTemp,SCOUNT));
-///      Serial.print("averageVoltage= "); Serial.println(averageVoltage);
-      float compensationCoefficient=1.0+0.019*(t2-25.0);    //temperature compensation formula: 0.019 used by YSI
-                //fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
-// coefficients given by DFROBOT on their webpage.  Error in that the temp. compensation. should be after using the equation
-/* TDS=(133.42*compensationVolatge*compensationVolatge*compensationVolatge
-            - 255.86*compensationVolatge*compensationVolatge
-            + 857.39*compensationVolatge)*0.5*K; //convert voltage value to tds value and multiply by calibration K.
-*/
-// coefficients for the following equation derived from calibration to
-// hundreds of specific conductance readings taken at SandL04 by an Onset logger running in parallel with the Spudnik
-      SpC= ( 18.835*averageVoltage*averageVoltage*averageVoltage
-            + 24.823*averageVoltage*averageVoltage
-            + 624.194*averageVoltage) /compensationCoefficient; //compensationCoefficient //convert voltage value to SpC value, then correct for temp
-
-    //  Serial.print("SpC Value: ");
-    //  Serial.println(SpC,2);
-      return SpC;  //adjust SpC by correction factor
-   }  // end of getSpC
-
-// get averageVolts value from sensor.  -----------------------------------------------
-      //  This can be sent to Ubidots for use later to calculate Specific Conductance
-float getAvolts()
-  {
-     #define VREF 3.3      // analog reference voltage(Volt) of the ADC
-     #define SCOUNT  40           // number of sample points to collect for averaging
-     #define resolution 4095.0  // analog resolution of 4095 with Particle electron
-     int analogBuffer[SCOUNT];    // store the analog value in the array, read from ADC
-     int analogBufferTemp[SCOUNT];
-     int analogBufferIndex = 0, copyIndex = 0;
-     float averageVoltage = 0;
-
-     while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
-       {
-          analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
-          analogBufferIndex++;
- //         if(analogBufferIndex == SCOUNT)
-           delay(50u);  //delay 50 milliseconds between taking sample
-       }
-       // copy one array to another
-     for(copyIndex=0;copyIndex<SCOUNT;copyIndex++)  // for coppyIndex = 0 to SCOUNT-1  // old way of copying an array
-        {
-            analogBufferTemp[copyIndex]= analogBuffer[copyIndex];   // copy analogBuffer to analogBufferTemp
-        }
-     averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF / resolution; // read the analog value,
-             // remember particle board has analog resolution of 4095
-             //made more stable by the median filtering algorithm, and convert to voltage value
-   return averageVoltage;
-  }  // end of getAvolts
+              // remember particle board has analog resolution of 4095
+              //made more stable by the median filtering algorithm, and convert to voltage value
+    return averageVoltage;
+    }  // end of getAvolts
 
 // calculate a median for set of values in buffer ----------------------------------------
 int getMedianNum(int bArray[], int iFilterLen)
-{     int bTab[iFilterLen];
-    for (byte i = 0; i<iFilterLen; i++)
-            bTab[i] = bArray[i];                  // copy input array into BTab[] array
-    int i, j, bTemp;
-    for (j = 0; j < iFilterLen - 1; j++)        // put array in ascending order
-         {  for (i = 0; i < iFilterLen - j - 1; i++)
-           {  if (bTab[i] > bTab[i + 1])
-              {  bTemp = bTab[i];
-                 bTab[i] = bTab[i + 1];
-                 bTab[i + 1] = bTemp;
-               }
-            }
-          }
-   if ((iFilterLen & 1) > 0)  // check to see if iFilterlen is odd or even using & (bitwise AND) i.e if length &AND 1 is TRUE (>0)
-        bTemp = bTab[(iFilterLen - 1) / 2];     // then then it is odd, and should take the central value
-    else
-       bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;  // if even then take aveage of two central values
-  return bTemp;
-} //end getmedianNum
+    {     int bTab[iFilterLen];
+        for (byte i = 0; i<iFilterLen; i++)
+                bTab[i] = bArray[i];                  // copy input array into BTab[] array
+        int i, j, bTemp;
+        for (j = 0; j < iFilterLen - 1; j++)        // put array in ascending order
+            {  for (i = 0; i < iFilterLen - j - 1; i++)
+              {  if (bTab[i] > bTab[i + 1])
+                  {  bTemp = bTab[i];
+                    bTab[i] = bTab[i + 1];
+                    bTab[i + 1] = bTemp;
+                  }
+                }
+              }
+      if ((iFilterLen & 1) > 0)  // check to see if iFilterlen is odd or even using & (bitwise AND) i.e if length &AND 1 is TRUE (>0)
+            bTemp = bTab[(iFilterLen - 1) / 2];     // then then it is odd, and should take the central value
+        else
+          bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;  // if even then take aveage of two central values
+      return bTemp;
+    } //end getmedianNum
 
 // a delay times using ms
 inline void waitMS(uint32_t timeout)   // function to delay the system thread for the timeout period
@@ -755,7 +759,7 @@ void setup_SD()
                fileName = String("lost-time000.csv");       
         for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
- //           fileName[9] = '0' + i/100;
+      //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
             fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
@@ -778,10 +782,10 @@ void setup_SD()
 //------------------------------------------------------------------------------
 // Write data header.
 void writeHeader()
-  {
-    //  file.print(F("datetime, t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts"));
-    file.print(F("datetime, Atemp, H2Otemp, Sp_C , Avolts, rain, depth_in, humid, Apressure, H2Opressure, SoC, volts"));
-    file.println();
+    {
+      //  file.print(F("datetime, t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts"));
+      file.print(F("datetime, Atemp, H2Otemp, Sp_C , Avolts, rain, depth_in, humid, Apressure, H2Opressure, SoC, volts"));
+      file.println();
     }
 //------------------------------------------------------------------------------
 // Log a data record.
@@ -793,7 +797,7 @@ void logData(char data[256])
         delay(500);
         file.print(data);
         file.println();
- ///       Serial.println(data);
+        Serial.println(data);
     }
 //--------------------------------------------------------------------------------
 //close down the SD card
@@ -806,8 +810,8 @@ void close_SD()
         // Close file and stop.
         file.flush();
         waitMS(200);
-        file.close();
-        /*
+      //  file.close();
+        
       if ( file.close() )  {
         sprintf(publishStr, "SD-write worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
@@ -818,100 +822,101 @@ void close_SD()
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
          Serial.println((publishStr));
         }
-      */
+      if (sd.exists(fileName)) Serial.println("datalog saved");
     }
 
 void watchdogHandler() 
-  {
-  // Do as little as possible in this function, preferably just calling System.reset().
-  // Do not attempt to Particle.publish(), use Cellular.command() 
-  // or similar functions. You can save data to a retained variable
-  // here safetly so you know the watchdog triggered when you restart.
-  // In 2.0.0 and later, System.reset(RESET_NO_WAIT); prevents notifying the cloud of a pending reset
-  System.reset();
-  }
+    {
+      // Do as little as possible in this function, preferably just calling System.reset().
+      // Do not attempt to Particle.publish(), use Cellular.command() 
+      // or similar functions. You can save data to a retained variable
+      // here safetly so you know the watchdog triggered when you restart.
+      // In 2.0.0 and later, System.reset(RESET_NO_WAIT); prevents notifying the cloud of a pending reset
+      System.reset();
+    }
 
-int delayTime(String delay)
-  { if(delay == "long")
-      {seconds=180;   // creat enough delay time to flash the unit
-       Particle.publish("Particle", "in delayTime",60,PRIVATE);
-       return 1; }
-    else 
-      {seconds=5; return -1; }
-  }
+  int delayTime(String delay)
+    { if(delay == "long")
+        {seconds=180;   // creat enough delay time to flash the unit
+        Particle.publish("Particle", "in delayTime",60,PRIVATE);
+        return 1; }
+      else 
+        {seconds=5; return -1; }
+    }
 //--------take Photo and store on SD--------------------------------------------
 void takePhoto()
-{
-  camera_VC0706 cam(&Serial1);
-  // locatecamera
-  if (cam.begin()) {
-    Serial.println("Camera Found:");
-  } else {
-    Serial.println("No camera found?");
-     }
-  // Print out the camera version information (optional)
-  char *reply = cam.getVersion();
-  if (reply == 0) {
- ///   Serial.print("Failed to get version");
-    } else {
-    //  Serial.println("-----------------");
-      Serial.print(reply);
-    //  Serial.println("-----------------");
-    }
-  Serial.println("Snap in 1/2 secs...");
-  delay(500);
-  if (! cam.takePicture()) 
-      Serial.println("Failed to snap!");
-    else 
-      Serial.println("Picture taken!");   
-
-  // setupFile
-  if(! Time.isValid()) 
-        {
-          fileName = String("lost-time000.jpg");       
-          for (int i = 0; i < 1000; i++) {
-            fileName.String::operator[](9) = '0' + i/100;
-  //           strcpy(fileName, "lost-time000.jpg");  
-  //           fileName[9] = '0' + i/100;
-            fileName.String::operator[](10) = '0' + i/10;
-            fileName.String::operator[](11) = '0' + i%10;
-            // create if does not exist, do not open existing, write, sync after write
-          if (!sd.exists(fileName)) {  break;  }
-          }
+    {
+      camera_VC0706 cam(&Serial1);
+      // locatecamera
+      if (cam.begin()) {
+        Serial.println("Camera Found:");
+      } else {
+        Serial.println("No camera found?");
         }
-        else
-          {
-           fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
-          ///  strcpy(fileName, hold); 
+      // Print out the camera version information (optional)
+      char *reply = cam.getVersion();
+      if (reply == 0) {
+    ///   Serial.print("Failed to get version");
+        } else {
+        //  Serial.println("-----------------");
+          Serial.print(reply);
+        //  Serial.println("-----------------");
+        }
+      Serial.println("Snap in 1/2 secs...");
+      delay(500);
+      if (! cam.takePicture()) 
+          Serial.println("Failed to snap!");
+        else 
+          Serial.println("Picture taken!");   
+
+      // setupFile
+      if(! Time.isValid()) 
+            {
+              fileName = String("lost-time000.jpg");       
+              for (int i = 0; i < 1000; i++) {
+                fileName.String::operator[](9) = '0' + i/100;
+      //           strcpy(fileName, "lost-time000.jpg");  
+      //           fileName[9] = '0' + i/100;
+                fileName.String::operator[](10) = '0' + i/10;
+                fileName.String::operator[](11) = '0' + i%10;
+                // create if does not exist, do not open existing, write, sync after write
+              if (!sd.exists(fileName)) {  break;  }
+              }
+            }
+            else
+              {
+              fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
+              ///  strcpy(fileName, hold); 
+              }
+      // Open the file for writing
+        file.open(fileName, FILE_WRITE);
+
+      // writePhotoToFile
+      // Get the size of the image (frame) taken  
+        uint16_t jpglen = cam.frameLength();
+        Serial.print(jpglen, DEC);
+        Serial.print(" byte image. ");
+        Serial.println(fileName);
+
+        int32_t time = millis();
+        pinMode(8, OUTPUT);
+      // Read all the data up to # bytes!
+        byte wCount = 0; // For counting # of writes
+        while (jpglen > 0) {
+          // read 32 bytes at a time;
+          uint8_t *buffer;
+          uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
+          buffer = cam.readPicture(bytesToRead);
+          file.write(buffer, bytesToRead);
+          if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
+          //  Serial.print('.');
+            Blink();
+            wCount = 0;
           }
-  // Open the file for writing
-    file.open(fileName, FILE_WRITE);
-
-  // writePhotoToFile
-  // Get the size of the image (frame) taken  
-    uint16_t jpglen = cam.frameLength();
-    Serial.print(jpglen, DEC);
-    Serial.print(" byte image. ");
-    Serial.println(fileName);
-
-    int32_t time = millis();
-    pinMode(8, OUTPUT);
-  // Read all the data up to # bytes!
-    byte wCount = 0; // For counting # of writes
-    while (jpglen > 0) {
-      // read 32 bytes at a time;
-      uint8_t *buffer;
-      uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
-      buffer = cam.readPicture(bytesToRead);
-      file.write(buffer, bytesToRead);
-      if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
-      //  Serial.print('.');
-        Blink();
-        wCount = 0;
-      }
-      jpglen -= bytesToRead;
+          jpglen -= bytesToRead;
+        }
+        file.close();
+          time = millis() - time;
+          Serial.print(time); Serial.println(" ms elapsed");
+        if (sd.exists(fileName)) Serial.println("photo saved");
     }
-    file.close();
-      time = millis() - time;
-      Serial.print(time); Serial.println(" ms elapsed");
-}
