@@ -35,6 +35,7 @@
   to serial, tries 1 more minute and then goes back to sleep.
 
 */
+#define ver = "1.1.0-alpha.1"
 // @ts-check
 // for logging to SD------------
 #include <SPI.h>        //**
@@ -49,6 +50,7 @@ SdFat sd;               //**
 SdFile file;            //**
 // Error messages stored in flash.
 #define error(msg) sd.errorHalt(F(msg))
+
 ArduinoOutStream cout(Serial);
 // for camera-------------------------------
 #include "camera_VC0706.h"
@@ -90,7 +92,7 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
   #define t2_offset  -0.60 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
   #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
 //*****************************************************
-  char publishStr[80]; /// was 30
+  char publishStr[180]; /// was 30
   char works[5];  /// was 4
   const int      MAXRETRY          = 4;
   int      ii          = 0;
@@ -139,8 +141,11 @@ int ledPin = D7;         // LED connected to D7
 
 // ---------SETUP------------
 void setup() {
-     Serial.begin(9600);
-       wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
+  Serial.begin(9600);
+  wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
+  // set date time callback function. Do in setup() or loop()?  used to write file datetime to SD-card
+  SdFile::dateTimeCallback(dateTime);
+  waitSec(0.5);  
 ///    Particle.variable("temp", t2);
 
 //  Do I need to set up D0 and D1 in some way for the BME280s   ????????????
@@ -157,111 +162,15 @@ void setup() {
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
+  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card, set high later
+  digitalWrite(B2, LOW);	//
 
-	delay(500);   // delay to give time for power to turn on, don't know if this is needed
+  waitSec(0.5); // delay to give time for power to turn on, don't know if this is needed   
 
   //ubidots.setDatasourceName(DATA_SOURCE_NAME); //This name will automatically show up in Ubidots the first time you post data.
-
-// Initalize the PMIC class so you can call the Power Management functions below.
-  // Particle.publish("PMIC", "setting charge in setup",60,PRIVATE);
-PMIC pmic;
-  // pmic.setInputCurrentLimit(150);
-  /*******************************************************************************
-    Function Name : setInputCurrentLimit
-    Description : Sets the input current limit for the PMIC
-    Input : 100,150,500,900,1200,1500,2000,3000 (mAmp)
-    Return : 0 Error, 1 Success
-    use pmic.setInputCurrentLimit(uint16_t current);
-    // from spark_wiring_power.cpp
-     @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
-     This will be overridden if the input voltage drops out and comes back though (with something like a solar cell)
-     and it will be set back to the default 900mA level. To counteract that you could set it in a Software Timer every 60 seconds or so.
-    *******************************************************************************/
-pmic.setChargeCurrent(0, 0, 1, 0, 0, 0);      // Set charging current to 1024mA (512 + 512 offset)    //???????? is this good idea?
-    //pmic.setChargeCurrent(0, 0, 0, 0, 1, 0);  // Set charging current to 640mA (512 + 128)
-  /* Function Name  : setChargeCurrent  // from spark_wiring_power.cpp
-     @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
-  * Description    : The total charge current is the 512mA + the combination of the
-                    current that the following bits represent
-                    bit7 = 2048mA
-                    bit6 = 1024mA
-                    bit5 = 512mA
-                    bit4 = 256mA
-                    bit3 = 128mA
-                    bit2 = 64mA
- * Input          : six boolean values
-                    For example,
-                    setChargeCurrent(0,0,1,1,1,0) will set the charge current to
-                    512mA + [0+0+512mA+256mA+128mA+0] = 1408mA
-    */
-  // Set the lowest input voltage to 4.84 volts. This keeps the solar panel from operating below 4.84 volts.
-pmic.setInputVoltageLimit(4840);  //  taken from code suggested by RyanB in the https://community.particle.io forum
-      // see: https://community.particle.io/t/pmic-only-sometimes-not-charging-when-battery-voltage-is-below-3-5v/30346
-  //      pmic.setInputVoltageLimit(4040); //to get some charge in low light? not sure this helps
-  ///pmic.setInputVoltageLimit(5080);
-  /*************************from: https://github.com/particle-iot/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
-  * Function Name  : setInputVoltageLimit
-  * Description    : set the minimum acceptable input voltage
-  * Input          : 3880mV to 5080mV in the increments of 80mV
-                    3880
-                    3960
-                    4040
-                    4120
-                    4200
-                    4280
-                    4360
-                    4440
-                    4520
-                    4600
-                    4680
-                    4760
-                    4840
-                    4920
-                    5000
-                    5080
-  * Return         : 0 Error, 1 Success
- *******************************************************************************/
-  //pmic.setChargeVoltage(4512);  // for sealed lead-acit (SLA) battery. may not be implemented in spark_wiring_power.cpp
-pmic.setChargeVoltage(4208); // set upper limit on charge voltage. this limits the
-  // max charge that will be given to the battery.
-  // default is 4112 in Particle Electron which gives 80% charge. set to 4208 to get charge to go up to 90%
-  /*******************************************************************************
-  * Function Name  : setChargeVoltage
-  * Description    : The total charge voltage is the 3.504V + the combination of the
-                    voltage that the following bits represent
-                    bit7 = 512mV
-                    bit6 = 256mV
-                    bit5 = 128mV
-                    bit4 = 64mV
-                    bit3 = 32mV
-                    bit2 = 16mV
-  * Input          : desired voltage (4208 or 4112 are the only options currently)
-                    4208 is the default // this doesn't seem to be true for the Electron
-                    4112 is a safer termination voltage if exposing the
-                battery to temperatures above 45°C & the Particle Electron default
-  * Return         : 0 Error, 1 Success
-  e.g  case 4112:    writeRegister(CHARGE_VOLTAGE_CONTROL_REGISTER, (mask | 0b10011000));
-                                                                              76543 = 3504+512+64+32=4112
-     0b111111000 = max = 4.512 if  spark_wiring_power.cpp gets modified
-  *******************************************************************************
-   bool PMIC::setChargeVoltage(uint16_t voltage) {.......................
- *******************************************************************************/
-
-// Apply a custom power configuration
-    SystemPowerConfiguration conf;
-
-    conf.powerSourceMaxCurrent(1024)   //default 900 mA. Set maximum current the power source can provide when powered through VIN.
-        .powerSourceMinVoltage(4840)  //default 3880 (3.88 v). Set minimum voltage required for VIN to be used. 
-        .batteryChargeCurrent(1024)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
-        .batteryChargeVoltage(3280) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
-        .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
-
-    ///Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
-  ///  int res = System.setPowerConfiguration(conf); 
-  ///  Log.info("setPowerConfiguration=%d", res);
-    // returns SYSTEM_ERROR_NONE (0) in case of success
-    // Settings are persisted, you normally wouldn't do this on every startup.
+  ///setPMIC();
   // pmic.disableCharging();
+  customPower();
 
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
@@ -294,7 +203,7 @@ void loop() {
   float SoC = -99;
   SoC = fuel.getSoC();
 //SoC = System.batteryCharge();    
-/*
+waitSec(1);
 {
         PMIC power(true);
         Log.info("Current PMIC settings:");
@@ -320,7 +229,7 @@ void loop() {
         Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
         Log.info("Battery charge: %f", batterySoc);
     }
-*/
+waitSec(0.5);
 // setup the SD for logging the data
  setup_SD();
   
@@ -394,129 +303,65 @@ char Humid[] = "Humidity_%";
   ubidots.add("A.volts", Avolts);
 
 //------------------ log data and take photo-------------------------------------------------
-pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card
-digitalWrite(B2, HIGH);	//      
 
+// digitalWrite(B2, HIGH);	//   turn on ground for the SD-card
 //  write the data to a SD card before trying to connect
-  char _json[256];
+    char _json[256];
     snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
-                          t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
-logData(_json);
-delay(300);
-close_SD();
-delay(300);
-
+     t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
+    logData(_json);
+    waitSec(0.5);
+    close_SD();
  //--------------take a photo  --------------------
-if ((SoC > 60.0) && ((Time.hour() == 13) || (Time.hour() == 15) || (Time.hour() == 17))) 
+if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
   {  
-//    waitSec(0.5);
+    digitalWrite(B2, HIGH);	//   turn on ground for the camera
+    waitSec(2);
     takePhoto(); 
+    waitSec(1);
+    digitalWrite(B2, LOW);     //disconnect ground for the camera
   }
-  waitSec(0.5);
+
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
-  (sd.ls("/", LS_R) );
+  // (sd.ls("/", LS_R) );
+  waitSec(0.5);
+  sd.ls("/",LS_R | LS_DATE | LS_SIZE | LS_A);
+  //  file.timestamp()
 
-digitalWrite(B2, LOW);     //disconnect ground for the SD-card & camera
-// turn off  POWER pins after SD-card and camera are done
-  sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
+  // sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
+                      // try to get rid of this
+  // waitSec(0.5);
 //--------------------------------------------------------------------------------------------
-
-/*//----------------------------------------------------------------------------------
-// This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
-   //Serial.println("just prior to the Cellular.connect() command");
-   //delay(100);
-   Cellular.connect();   // this blocks further code execution (see reference) until connection
-                          // when in SYSTEM_MODE(semi_automatic),
-                          // unless SYSTEM_THREAD(ENABLED). I have SYSTEM_THREAD(ENABLED);
-                          //  in any case, after 5 mins of not successfuly connecting the modem
-                          // will give up and stop blocking code execution
-   delay(200);
-///   Serial.println("done the Cellular.connect() command, Waiting for Cellular.ready");
-      // If the cellular modem does not successfuly connect to the cellular network in
-      // 2 mins then blink blue LED and write message to serial below.
-      // Regardless of code, after 5 mins of not successfuly connecting the modem will give up.
-      if (!waitFor(Cellular.ready, a_minute * 1.5))
-         {
-            WeakSignalBlink();
-            delay(500);
-            WeakSignalBlink();
-            Serial.println("Difficulty connecting. Will try for 1 more min");
-            delay(500);
-         }   
-      // check a second time to make sure it is connected, if not, try for 1 more minute
-      if (!waitFor(Cellular.ready, a_minute * 0.5))
-         {
-            WeakSignalBlink();
-            delay(500);
-            WeakSignalBlink();
-               sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
-                Serial.print("Difficulty connecting, sleeping");   Serial.println(publishStr);
-            delay(500);
-            //System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval*minutes);
-            System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);
-            // if can't connect for a second time, go to deep sleep for
-            // for "minutes" minutes and on wake the program starts from the beginning
-          }       
- ///  Serial.println("passed the Cellular.ready test");
-   Particle.connect();
-/// if(Particle.connected()) { wDog.checkin();  } // resets the ApplicationWatchdog count if connected
-///   if(Particle.connected()) {  
-  
-      wd->checkin();  
-      
-      Particle.publish("particle", "connected",60,PRIVATE);
-      Serial.println("connected");
- ///     } // resets the ApplicationWatchdog count if connected
-               // to cell and connected to Particle cloud.
-  
-// if you want to set a position for mapping in Ubidots
-//char context[25];
-//sprintf(context, "lat= 47.6162$lng=-91.595190"); //Sends latitude and longitude for watching position in a map
-///  sprintf(context, "AirTemp=%05.2f$H2OTemp=%05.2f$A.volts=%05.3f$Depth=%05.2f$tries=%1.1i", t1,t2,Avolts,depth,ii);
-//  ubidots.add("Position", 47.6162, context); // need variable named "Position" to set device location
-// add data to list of items to be sent to Ubidots. Max of 10 items in que. 
-    //Limit set in include file ubidots.h  , modified to take 15 adds
-
-// ---- get cell signal strength & quality
-      CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
-                                     //So this line has been moved to after the if Cellular.ready statement
-      ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
-      ubidots.add("CellStren", sig.rssi);
-//
-//  send the the data to Ubidots after it has been added
-      ubidots.send(DATA_SOURCE_NAME,DATA_SOURCE_NAME); // Send rest of the data to your Ubidots account.
-    //2020-01-12 modified UbiConstants.h to allow for sending up to 15 variables
-                  // but unibots doesn't seem to accept well more than 14 for a device
-    waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
-
-    UploadBlink();
-    sprintf(publishStr, 
-    "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
-              works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
-      Particle.publish(unit_name, publishStr, 60, PRIVATE);
-    delay(500);
-  //  char _json[256];
-//    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-//                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
-    snprintf(_json, sizeof(_json), 
-    "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-               t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
-      Particle.publish("data", _json, PRIVATE);
-    delay(500);
-    Serial.println("finished uploading");
-// send warning message to particle console
-    sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
-      Particle.publish(unit_name, publishStr,60,PRIVATE);
-    waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
-                          // of "long" to function "delay" frpm Particle console
-    waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
- // send message to particle console
-    sprintf(publishStr, "sleeping %2i minutes", minutes);
-    sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-      Particle.publish(event_name, publishStr,60,PRIVATE);
-    waitSec(2); //wait 2 more seconds
-    */ //*************************************
+/*
+connectToWeb();
+sprintf(publishStr, 
+        "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
+                  works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
+          Particle.publish(unit_name, publishStr, 60, PRIVATE);
+        delay(500);
+    //  char _json[256];
+    //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+    //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+        snprintf(_json, sizeof(_json), 
+        "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+                  t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
+          Particle.publish("data", _json, PRIVATE);
+        delay(500);
+        Serial.println("finished uploading");
+        // send warning message to particle console
+        sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+          Particle.publish(unit_name, publishStr,60,PRIVATE);
+        waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
+                              // of "long" to function "delay" frpm Particle console
+        waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
+        // send message to particle console
+        sprintf(publishStr, "sleeping %2i minutes", minutes);
+        sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
+          Particle.publish(event_name, publishStr,60,PRIVATE);
+        waitSec(1); //wait 1 more seconds
+    //*************************************
+*/
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
@@ -525,7 +370,10 @@ digitalWrite(B2, LOW);     //disconnect ground for the SD-card & camera
     // SLEEP_MODE_SOFTPOWEROFF = 110 μA
 
 } // end loop()
-
+//*******************************************************************************************
+//************************************               *******************************************************
+//************************************               *******************************************************
+//************************************               *******************************************************
 //*******************************************************************************************
 //------------------------------ Functions --------------------------------------------------
 //
@@ -613,13 +461,13 @@ int checkBattery(float charge,float V)
           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
               {
                 min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                if (charge>25 )   min = 4;    // 5 hours (300 min)
-                    if (charge>50 )   min = 2;     // 2 hours (120 min)
-                        if (charge>65 )   min = 2;   // 1.5 hours (90 min)
-                                if (charge>75 )   min = 1;     // 60 minutes
-                                    if (charge>80 )   min = 1;      // 30 minutes;
+                  if (charge>30 )   min = 299;    // 5 hours (300 min)
+                      if (charge>50 )   min = 119;     // 2 hours (120 min)
+                          if (charge>60 )   min = 59;   // 1.5 hours (90 min)
+                                if (charge>70 )   min = 44;     // 60 minutes
+                                    if (charge>80 )   min = 29;      // 30 minutes;
                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
-                }
+              }
               else
               { // if battery below 12.5%, don't even try to connect but go to sleep for 9 hours
                   min = 432000;   // sleep 5 days if battery very low
@@ -733,15 +581,17 @@ int getMedianNum(int bArray[], int iFilterLen)
 
 // a delay times using ms
 inline void waitMS(uint32_t timeout)   // function to delay the system thread for the timeout period
-{ // timeout == 0 waits forever
-  uint32_t ms = millis();
-  while (timeout == 0 || millis() - ms < timeout)
-    Particle.process();
-}
+      { // timeout == 0 waits forever
+        uint32_t ms = millis();
+        while (timeout == 0 || millis() - ms < timeout)
+          Particle.process();
+      }
+
  //  create a Delay using timer and seconds, safer than delay()
-inline void waitSec(uint32_t seconds) {
-  for (uint32_t sec = (millis()/1000); (millis()/1000) - sec < seconds; Particle.process());
-}
+inline void waitSec(uint32_t seconds) 
+    {
+      for (uint32_t sec = (millis()/1000); (millis()/1000) - sec < seconds; Particle.process());
+    }
 
 //===========================SD FUNCTIONS=====================================
 
@@ -793,10 +643,12 @@ void logData(char data[256])
     {
     // Write data to file.
         time_t time = Time.now();
+        waitSec(0.5);
         file.print(Time.format(time, TIME_FORMAT_ISO8601_FULL)); // e.g. 2004-01-10T08:22:04-06:00
-        delay(500);
+        waitSec(0.5);
         file.print(data);
         file.println();
+        waitSec(0.5);
         Serial.println(data);
     }
 //--------------------------------------------------------------------------------
@@ -812,7 +664,7 @@ void close_SD()
         waitMS(200);
       //  file.close();
         
-      if ( file.close() )  {
+      if ( file.close() && sd.exists(fileName) )  {
         sprintf(publishStr, "SD-write worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
          Serial.println((publishStr));
@@ -822,7 +674,6 @@ void close_SD()
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
          Serial.println((publishStr));
         }
-      if (sd.exists(fileName)) Serial.println("datalog saved");
     }
 
 void watchdogHandler() 
@@ -835,7 +686,7 @@ void watchdogHandler()
       System.reset();
     }
 
-  int delayTime(String delay)
+int delayTime(String delay)
     { if(delay == "long")
         {seconds=180;   // creat enough delay time to flash the unit
         Particle.publish("Particle", "in delayTime",60,PRIVATE);
@@ -843,16 +694,19 @@ void watchdogHandler()
       else 
         {seconds=5; return -1; }
     }
+
 //--------take Photo and store on SD--------------------------------------------
 void takePhoto()
     {
       camera_VC0706 cam(&Serial1);
+      waitSec(0.5);
       // locatecamera
       if (cam.begin()) {
         Serial.println("Camera Found:");
       } else {
         Serial.println("No camera found?");
         }
+      waitSec(0.5);
       // Print out the camera version information (optional)
       char *reply = cam.getVersion();
       if (reply == 0) {
@@ -915,8 +769,212 @@ void takePhoto()
           }
           jpglen -= bytesToRead;
         }
-        file.close();
+      file.sync();  // to update file date
+      if ( file.close() && sd.exists(fileName) )  {
+        sprintf(publishStr, "Photo-save worked at %s", 
+                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+         Serial.println((publishStr));
+        }
+        else {
+        sprintf(publishStr, "Photo-save FAILED at %s", 
+                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+         Serial.println((publishStr));
+        }
+       // file.close();
           time = millis() - time;
           Serial.print(time); Serial.println(" ms elapsed");
-        if (sd.exists(fileName)) Serial.println("photo saved");
     }
+
+// dateTime stores current datetime in the right format for FAT
+// See SdFile::dateTimeCallback() for usage.
+void dateTime(uint16_t* date, uint16_t* time) 
+    {
+     // return date using FAT_DATE macro to format fields
+     *date = FAT_DATE(Time.year(), Time.month(), Time.day());
+
+     // return time using FAT_TIME macro to format fields
+     *time = FAT_TIME(Time.hour(), Time.minute(), Time.second());
+    }
+
+void setPMIC()
+    {
+        // Initalize the PMIC class so you can call the Power Management functions below.
+      // Particle.publish("PMIC", "setting charge in setup",60,PRIVATE);
+    PMIC pmic;
+      // pmic.setInputCurrentLimit(150);
+      /*******************************************************************************
+        Function Name : setInputCurrentLimit
+        Description : Sets the input current limit for the PMIC
+        Input : 100,150,500,900,1200,1500,2000,3000 (mAmp)
+        Return : 0 Error, 1 Success
+        use pmic.setInputCurrentLimit(uint16_t current);
+        // from spark_wiring_power.cpp
+        @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+        This will be overridden if the input voltage drops out and comes back though (with something like a solar cell)
+        and it will be set back to the default 900mA level. To counteract that you could set it in a Software Timer every 60 seconds or so.
+        *******************************************************************************/
+    pmic.setChargeCurrent(0, 0, 1, 0, 0, 0);      // Set charging current to 1024mA (512 + 512 offset)    //???????? is this good idea?
+        //pmic.setChargeCurrent(0, 0, 0, 0, 1, 0);  // Set charging current to 640mA (512 + 128)
+      /* Function Name  : setChargeCurrent  // from spark_wiring_power.cpp
+        @ https://github.com/spark/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+      * Description    : The total charge current is the 512mA + the combination of the
+                        current that the following bits represent
+                        bit7 = 2048mA
+                        bit6 = 1024mA
+                        bit5 = 512mA
+                        bit4 = 256mA
+                        bit3 = 128mA
+                        bit2 = 64mA
+    * Input          : six boolean values
+                        For example,
+                        setChargeCurrent(0,0,1,1,1,0) will set the charge current to
+                        512mA + [0+0+512mA+256mA+128mA+0] = 1408mA
+        */
+      // Set the lowest input voltage to 4.84 volts. This keeps the solar panel from operating below 4.84 volts.
+    pmic.setInputVoltageLimit(4840);  //  taken from code suggested by RyanB in the https://community.particle.io forum
+          // see: https://community.particle.io/t/pmic-only-sometimes-not-charging-when-battery-voltage-is-below-3-5v/30346
+      //      pmic.setInputVoltageLimit(4040); //to get some charge in low light? not sure this helps
+      ///pmic.setInputVoltageLimit(5080);
+      /*************************from: https://github.com/particle-iot/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+      * Function Name  : setInputVoltageLimit
+      * Description    : set the minimum acceptable input voltage
+      * Input          : 3880mV to 5080mV in the increments of 80mV
+                        3880
+                        3960
+                        4040
+                        4120
+                        4200
+                        4280
+                        4360
+                        4440
+                        4520
+                        4600
+                        4680
+                        4760
+                        4840
+                        4920
+                        5000
+                        5080
+      * Return         : 0 Error, 1 Success
+    *******************************************************************************/
+      //pmic.setChargeVoltage(4512);  // for sealed lead-acit (SLA) battery. may not be implemented in spark_wiring_power.cpp
+    pmic.setChargeVoltage(4208); // set upper limit on charge voltage. this limits the
+      // max charge that will be given to the battery.
+      // default is 4112 in Particle Electron which gives 80% charge. set to 4208 to get charge to go up to 90%
+      /*******************************************************************************
+      * Function Name  : setChargeVoltage
+      * Description    : The total charge voltage is the 3.504V + the combination of the
+                        voltage that the following bits represent
+                        bit7 = 512mV
+                        bit6 = 256mV
+                        bit5 = 128mV
+                        bit4 = 64mV
+                        bit3 = 32mV
+                        bit2 = 16mV
+      * Input          : desired voltage (4208 or 4112 are the only options currently)
+                        4208 is the default // this doesn't seem to be true for the Electron
+                        4112 is a safer termination voltage if exposing the
+                    battery to temperatures above 45°C & the Particle Electron default
+      * Return         : 0 Error, 1 Success
+      e.g  case 4112:    writeRegister(CHARGE_VOLTAGE_CONTROL_REGISTER, (mask | 0b10011000));
+                                                                                  76543 = 3504+512+64+32=4112
+        0b111111000 = max = 4.512 if  spark_wiring_power.cpp gets modified
+      *******************************************************************************
+      bool PMIC::setChargeVoltage(uint16_t voltage) {.......................
+    *******************************************************************************/
+    }
+
+void customPower()
+{
+  // Apply a custom power configuration
+  SystemPowerConfiguration conf;
+    conf.powerSourceMaxCurrent(1200)   //default 900 mA. Set maximum current the power source can provide when powered through VIN.
+                                          //1024 results in 900, 1100 results in 900, 1200 results in 1200, 1160 results in 900
+        .powerSourceMinVoltage(4840)  //default 3880 (3.88 v). Set minimum voltage required for VIN to be used. 
+                                        // 4840 suggested by RyanB
+        .batteryChargeCurrent(1000)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
+                                          // 1200 results in 1152, 1000 results in 960
+        .batteryChargeVoltage(4208) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
+                                      /// set to 3504 to stop charging from usb
+        .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
+
+  Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
+  // / int res = System.setPowerConfiguration(conf); 
+  // / Log.info("setPowerConfiguration=%d", res);
+    waitSec(0);
+    // returns SYSTEM_ERROR_NONE (0) in case of success
+    // Settings are persisted, you normally wouldn't do this on every startup.
+}
+void connectToWeb()
+    {
+    //----------------------------------------------------------------------------------
+    // This command turns on the Cellular Modem and tells it to connect to the cellular network. requires SYSTEM_THREAD(ENABLED)
+      //Serial.println("just prior to the Cellular.connect() command");
+      //delay(100);
+      Cellular.connect();   // this blocks further code execution (see reference) until connection
+                              // when in SYSTEM_MODE(semi_automatic),
+                              // unless SYSTEM_THREAD(ENABLED). I have SYSTEM_THREAD(ENABLED);
+                              //  in any case, after 5 mins of not successfuly connecting the modem
+                              // will give up and stop blocking code execution
+      delay(200);
+    ///   Serial.println("done the Cellular.connect() command, Waiting for Cellular.ready");
+          // If the cellular modem does not successfuly connect to the cellular network in
+          // 2 mins then blink blue LED and write message to serial below.
+          // Regardless of code, after 5 mins of not successfuly connecting the modem will give up.
+          if (!waitFor(Cellular.ready, a_minute * 1.5))
+            {
+                WeakSignalBlink();
+                delay(500);
+                WeakSignalBlink();
+                Serial.println("Difficulty connecting. Will try for 1 more min");
+                delay(500);
+            }   
+          // check a second time to make sure it is connected, if not, try for 1 more minute
+          if (!waitFor(Cellular.ready, a_minute * 0.5))
+            {
+                WeakSignalBlink();
+                delay(500);
+                WeakSignalBlink();
+                  sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
+                    Serial.print("Difficulty connecting, sleeping");   Serial.println(publishStr);
+                delay(500);
+                //System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval*minutes);
+                System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);
+                // if can't connect for a second time, go to deep sleep for
+                // for "minutes" minutes and on wake the program starts from the beginning
+              }       
+    ///  Serial.println("passed the Cellular.ready test");
+      Particle.connect();
+    /// if(Particle.connected()) { wDog.checkin();  } // resets the ApplicationWatchdog count if connected
+    ///   if(Particle.connected()) {  
+      
+          wd->checkin();  
+          
+          Particle.publish("particle", "connected",60,PRIVATE);
+          Serial.println("connected");
+    ///     } // resets the ApplicationWatchdog count if connected
+                  // to cell and connected to Particle cloud.
+      
+    // if you want to set a position for mapping in Ubidots
+    //char context[25];
+    //sprintf(context, "lat= 47.6162$lng=-91.595190"); //Sends latitude and longitude for watching position in a map
+    ///  sprintf(context, "AirTemp=%05.2f$H2OTemp=%05.2f$A.volts=%05.3f$Depth=%05.2f$tries=%1.1i", t1,t2,Avolts,depth,ii);
+    //  ubidots.add("Position", 47.6162, context); // need variable named "Position" to set device location
+    // add data to list of items to be sent to Ubidots. Max of 10 items in que. 
+        //Limit set in include file ubidots.h  , modified to take 15 adds
+
+    // ---- get cell signal strength & quality
+          CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
+                                        //So this line has been moved to after the if Cellular.ready statement
+          ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
+          ubidots.add("CellStren", sig.rssi);
+    //
+    //  send the the data to Ubidots after it has been added
+          ubidots.send(DATA_SOURCE_NAME,DATA_SOURCE_NAME); // Send rest of the data to your Ubidots account.
+        //2020-01-12 modified UbiConstants.h to allow for sending up to 15 variables
+                      // but unibots doesn't seem to accept well more than 14 for a device
+        waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
+
+        UploadBlink();
+        
+    } 
