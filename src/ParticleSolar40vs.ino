@@ -199,9 +199,26 @@ void loop() {
   //Serial.println("in loop");
   FuelGauge fuel; // Initalize the Fuel Gauge so we can call the fuel gauge functions below.
   //--- get battery info
+  waitSec(2);
+  //Serial.println(fuel.getVersion());
+  Serial.printlnf("quickstart_success= %d i.e. %s", fuel.quickStart(), (fuel.quickStart()?"false":"true"));
   float volts = fuel.getVCell();
   float SoC = -99;
   SoC = fuel.getSoC();
+  // Serial.println(SoC);
+  // Serial.println(volts/4.4);
+  Serial.printlnf("SoC=%6.2f,  volts=%6.2f,  volts/4.4=%5.2f" , SoC,volts,(volts/4.4));
+  Serial.printlnf("difference= %5.2f%%", 100*abs(1-(100*volts/4.4)/SoC));
+  
+ /* if ( abs(1-((volts/4.4)/(SoC/100)))      > 0.2 ) 
+    { fuel.reset();
+      fuel.quickStart();
+      volts = fuel.getVCell();
+      SoC = fuel.getSoC();
+      waitMS(500);
+       Serial.println(SoC);
+    } */
+     
 //SoC = System.batteryCharge();    
 waitSec(1);
 {
@@ -229,12 +246,14 @@ waitSec(1);
         Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
         Log.info("Battery charge: %f", batterySoc);
     }
-waitSec(0.5);
-// setup the SD for logging the data
- setup_SD();
+waitSec(1);
   
 //  set the deep sleep time based on the battery charge
  minutes = checkBattery(SoC,volts);
+
+// setup the SD for logging the data
+ setup_SD();
+
 
   float rain = analogRead(RainPin);
   digitalWrite(B0, LOW);     //turn off power to the rain sensor, otherwise it interfears
@@ -313,7 +332,8 @@ char Humid[] = "Humidity_%";
     waitSec(0.5);
     close_SD();
  //--------------take a photo  --------------------
-if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
+if ( (SoC > 50.0) && ( (Time.hour()==10) || (Time.hour()==12) || 
+                       (Time.hour()==13) || (Time.hour()==16)  ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -321,7 +341,7 @@ if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
     waitSec(1);
     digitalWrite(B2, LOW);     //disconnect ground for the camera
   }
-
+/* 
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
   // (sd.ls("/", LS_R) );
@@ -332,6 +352,7 @@ if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
   // sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
                       // try to get rid of this
   // waitSec(0.5);
+ */
 //--------------------------------------------------------------------------------------------
 /*
 connectToWeb();
@@ -377,14 +398,14 @@ sprintf(publishStr,
 //*******************************************************************************************
 //------------------------------ Functions --------------------------------------------------
 //
-void Blink()
+void Flicker(int n=1)
     {
-        for (size_t i = 0; i < 1; i++)
+        for (size_t i = 0; i < n; i++)
         {
           digitalWrite(ledPin, HIGH);   // Sets the LED on
-          delay(20);                   // Waits for a sec
-          digitalWrite(ledPin, LOW);   // Sets the LED on
-          delay(5);
+          delay(10);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED off
+          if (n>1)  delay(60);
         }
     }
 
@@ -756,26 +777,31 @@ void takePhoto()
         pinMode(8, OUTPUT);
       // Read all the data up to # bytes!
         byte wCount = 0; // For counting # of writes
-        while (jpglen > 0) {
+        while (jpglen > 0) 
+        {
           // read 32 bytes at a time;
           uint8_t *buffer;
-          uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
+          uint8_t bytesToRead = min(32, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
           buffer = cam.readPicture(bytesToRead);
           file.write(buffer, bytesToRead);
-          if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
+          if(++wCount >= 64) 
+          { // Every 2K, give a little feedback so it doesn't appear locked up
           //  Serial.print('.');
-            Blink();
+            Flicker(1);
             wCount = 0;
           }
           jpglen -= bytesToRead;
         }
+        waitSec(0.1);
       file.sync();  // to update file date
-      if ( file.close() && sd.exists(fileName) )  {
+      if ( file.close() && sd.exists(fileName) )  
+        {
         sprintf(publishStr, "Photo-save worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
          Serial.println((publishStr));
         }
-        else {
+        else 
+        {
         sprintf(publishStr, "Photo-save FAILED at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
          Serial.println((publishStr));
