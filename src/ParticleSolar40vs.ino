@@ -35,7 +35,7 @@
   to serial, tries 1 more minute and then goes back to sleep.
 
 */
-#define ver = "1.1.0-alpha.1"
+//#define ver = "1.1.0-alpha.1"
 // @ts-check
 // for logging to SD------------
 #include <SPI.h>        //**
@@ -77,9 +77,10 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 ///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
 //#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
 #define DATA_SOURCE_NAME "Spudnik-08b"
-//--#define unit_name "Spudnik-08b"
-String unit_name = "Spudnik-08b";
+#define unit_name "Spudnik-08b"
+//String unit_name = "Spudnik-08b";
 #define code_name "particlesolar30c"
+
 SerialLogHandler logHandler;
 
 ApplicationWatchdog *wd;
@@ -88,14 +89,14 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
                     // your_token is defined in sensitive_definitions.h
 
 //*****************************************************
-  #define t1_offset  -0.80 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
-  #define t2_offset  -0.60 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
+//*****************************************************
+  #define t1_offset  -0.7 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
+  #define t2_offset  0.05 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
   #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
 //*****************************************************
-  char publishStr[180]; /// was 30
-  char works[5];  /// was 4
-  const int      MAXRETRY          = 4;
-  int      ii          = 0;
+  char publishStr[150]; /// was 30,  for publishing strings of info
+  char works[5];  /// was 4,  for reporting if SD-card setup worked
+  char _json[150];  // for reporting data to SD-card, and Particle
 //initialize for BME280 bme2 AIR temp, humidity, pressure readings
   float t1 = -99.9;
   float h1 = -99.9;
@@ -103,6 +104,14 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
 //initialize for BME280  bme2 WATER temp, pressure readings
   float t2 = -99.9;
   float p2 = -99.9;
+  float depth = -99.9;
+// initialize variable for reading sensors
+  float Sp_C;     // Specific Conductance returned from TDS sensor routine
+  float Avolts;  //raw voltage returned from TDS sensor
+  float rain;     //
+// initialize battery variables
+  float volts;  // battery voltage
+  float SoC;    // battery charge
 //initialize timing variables
   int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
   int a_minute = 60000; // define a minute as 60000 milli-seconds
@@ -140,7 +149,8 @@ int ledPin = D7;         // LED connected to D7
   //ApplicationWatchdog wDog(90000, watchdogHandler, 512);
 
 // ---------SETUP------------
-void setup() {
+void setup() 
+{
   Serial.begin(9600);
   wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
   // set date time callback function. Do in setup() or loop()?  used to write file datetime to SD-card
@@ -154,7 +164,7 @@ void setup() {
   // when processor is shut down
 	pinMode(D3, OUTPUT);     // power for the all digital sensors
 	digitalWrite(D3, HIGH);
-                              //activate the Electron internal pullup resistor but also have a 4.7Kohm pullup on the board
+
 	pinMode(D5, OUTPUT);     // power for SD-card and camera
 	digitalWrite(D5, HIGH);
 
@@ -162,7 +172,7 @@ void setup() {
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
-  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card, set high later
+  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for camera, set high later
   digitalWrite(B2, LOW);	//
 
   waitSec(0.5); // delay to give time for power to turn on, don't know if this is needed   
@@ -171,7 +181,10 @@ void setup() {
   ///setPMIC();
   // pmic.disableCharging();
   customPower();
-
+  // {  //turn off battery charging
+  //   PMIC _pmic; // instantiate an object
+  //   _pmic.disableCharging();
+  // }
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
                   //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt   check which bme has SD0 held high
@@ -186,29 +199,30 @@ void setup() {
         Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
       }
 
-  // register a Particle cloud Function.  "Delay" is used from the Particle console to set the delay 
-     // to "long", i.e. delay of 120 seconds for OTA software uploads. otherwise delay defaults to 2 seconds.
+// register a Particle cloud Function.  "Delay" is used from the Particle console to set the delay 
+     // to "long", i.e. delay of 180 seconds for OTA software uploads. otherwise delay defaults to 2 seconds.
   Particle.function("Delay", delayTime);
 
- Serial.println("ending setup");
+  Serial.println("ending setup");
 } // end setup()
 
 //-----------LOOP
-void loop() {  
-  char event_name[30];
+void loop() 
+{  
   //Serial.println("in loop");
   FuelGauge fuel; // Initalize the Fuel Gauge so we can call the fuel gauge functions below.
   //--- get battery info
-  waitSec(2);
+  waitSec(1);
   //Serial.println(fuel.getVersion());
   Serial.printlnf("quickstart_success= %d i.e. %s", fuel.quickStart(), (fuel.quickStart()?"false":"true"));
-  float volts = fuel.getVCell();
-  float SoC = -99;
+  volts = fuel.getVCell();
   SoC = fuel.getSoC();
   // Serial.println(SoC);
   // Serial.println(volts/4.4);
   Serial.printlnf("SoC=%6.2f,  volts=%6.2f,  volts/4.4=%5.2f" , SoC,volts,(volts/4.4));
-  Serial.printlnf("difference= %5.2f%%", 100*abs(1-(100*volts/4.4)/SoC));
+  Serial.printlnf("difference= %5.2f%%", 100*abs(1-(100*volts/4.304)/SoC));
+
+  Serial.printlnf("mapped volts= %5.2f%%", map((double)volts,3.5,4.304,0.0,100.0));
   
  /* if ( abs(1-((volts/4.4)/(SoC/100)))      > 0.2 ) 
     { fuel.reset();
@@ -219,34 +233,9 @@ void loop() {
        Serial.println(SoC);
     } */
      
-//SoC = System.batteryCharge();    
-waitSec(1);
-{
-        PMIC power(true);
-        Log.info("Current PMIC settings:");
-        Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
-        Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
-        Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
-        Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
-
-        int powerSource = System.powerSource();
-        int batteryState = System.batteryState();
-        float batterySoc = System.batteryCharge();
-
-        constexpr char const* batteryStates[] = {
-            "unknown", "not charging", "charging",
-            "charged", "discharging", "fault", "disconnected"
-        };
-        constexpr char const* powerSources[] = {
-            "unknown", "vin", "usb host", "usb adapter",
-            "usb otg", "battery"
-        };
-
-        Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
-        Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
-        Log.info("Battery charge: %f", batterySoc);
-    }
-waitSec(1);
+  //SoC = System.batteryCharge();    
+  waitSec(0.5);
+  showPMIC();
   
 //  set the deep sleep time based on the battery charge
  minutes = checkBattery(SoC,volts);
@@ -254,12 +243,14 @@ waitSec(1);
 // setup the SD for logging the data
  setup_SD();
 
-
-  float rain = analogRead(RainPin);
+  {    // read sensors
+  rain = analogRead(RainPin);
   digitalWrite(B0, LOW);     //turn off power to the rain sensor, otherwise it interfears
                              // with the next analog sensor (i.e. TDS/Sp.C)
   delay(200);
-  // ---- get AIR temperature and humidity and pressure  // from BME280 using I2C connection
+
+    {   // read BME sensors
+      // ---- get AIR temperature and humidity and pressure  // from BME280 using I2C connection
         int i = 0;
         while(i<2)  // read 2 times to be sure of a good read
              {
@@ -271,7 +262,7 @@ waitSec(1);
              }
           if (isnan(p1) || p1<1.0 )
             { h1 = -99.1; t1 = -99.1; p1 = -99.1;  }   // -99.1 is flag for bme read error
-    // ---- get WATER temperature and pressure // from the BME280 using I2C connection. 
+      // ---- get WATER temperature and pressure // from the BME280 using I2C connection. 
           // being used underwater (enclosed in mineral oil) for depth sensor
         i = 0;
         while(i<2)  // read 2 times to be sure of a good read
@@ -286,27 +277,29 @@ waitSec(1);
               {  t2 = -99.1; p2 = -99.1;  }    // -99.1 is flag for bme read error
         t1 = t1+t1_offset;
         t2 = t2+t2_offset;
-
-// ---- get WATER calculated Specific Conductance and median voltage on sensor
-    float Sp_C = getSpC() * k;
-    float Avolts = getAvolts();
-// turn off sensor POWER pins after sensors are read
-        digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  and camera
-      //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
+    }
+  // ---- get WATER calculated Specific Conductance and median voltage on sensor
+    Sp_C = getSpC() * k;
+    Avolts = getAvolts();
+  // turn off sensor POWER pins after sensors are read
+    digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  and camera
+   //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
     ///digitalWrite(B0, LOW);	// for the rain sensor
-        digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor  
- //        digitalWrite(D5, LOW);	 // for the  camera
+    digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor  
+  //        digitalWrite(D5, LOW);	 // for the  camera
         
-///char context[90];
-//sprintf(context, "tries=%02i", ii);
-// add values to que of data to be uploaded to Ubidots
-///	ubidots.add("time(UTC)",Time.now()/60);
+  ///char context[90];
+  //sprintf(context, "tries=%02i", ii);
+  // add values to que of data to be uploaded to Ubidots
+  ///	ubidots.add("time(UTC)",Time.now()/60);
+  }
 
+{   //write to ubidots
 //char Rain = "Rain";
-char Rain[] = "Rain";
-char AirT[] = "Air-Temp_C";
-char Humid[] = "Humidity_%";
-  float depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
+  char Rain[] = "Rain";
+  char AirT[] = "Air-Temp_C";
+  char Humid[] = "Humidity_%";
+  depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
 
   ubidots.add(Rain, rain);
 	ubidots.add(Humid, h1);
@@ -320,20 +313,21 @@ char Humid[] = "Humidity_%";
    //if (t2 > -99.0)   // if reading water temperature was successful, send temp and Sp_Cond to Ubidots
   ubidots.add("Sp_Cond", Sp_C);
   ubidots.add("A.volts", Avolts);
-
+}
 //------------------ log data and take photo-------------------------------------------------
 
 // digitalWrite(B2, HIGH);	//   turn on ground for the SD-card
 //  write the data to a SD card before trying to connect
-    char _json[256];
-    snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
-     t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
-    logData(_json);
+  snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
+                         t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
+  logData(_json);
+  Serial.println(_json);
     waitSec(0.5);
-    close_SD();
+  close_SD();
+
  //--------------take a photo  --------------------
-if ( (SoC > 50.0) && ( (Time.hour()==10) || (Time.hour()==12) || 
-                       (Time.hour()==13) || (Time.hour()==16)  ) )
+if ( (SoC > 50.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
+                       (Time.hour()==14) || (Time.hour()==15) ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -354,35 +348,12 @@ if ( (SoC > 50.0) && ( (Time.hour()==10) || (Time.hour()==12) ||
   // waitSec(0.5);
  */
 //--------------------------------------------------------------------------------------------
-/*
-connectToWeb();
-sprintf(publishStr, 
-        "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
-                  works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
-          Particle.publish(unit_name, publishStr, 60, PRIVATE);
-        delay(500);
-    //  char _json[256];
-    //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-    //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
-        snprintf(_json, sizeof(_json), 
-        "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-                  t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
-          Particle.publish("data", _json, PRIVATE);
-        delay(500);
-        Serial.println("finished uploading");
-        // send warning message to particle console
-        sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
-          Particle.publish(unit_name, publishStr,60,PRIVATE);
-        waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
-                              // of "long" to function "delay" frpm Particle console
-        waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
-        // send message to particle console
-        sprintf(publishStr, "sleeping %2i minutes", minutes);
-        sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-          Particle.publish(event_name, publishStr,60,PRIVATE);
-        waitSec(1); //wait 1 more seconds
-    //*************************************
-*/
+
+if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots
+  { connectToWeb();
+    uploadToUbi();
+    uploadToParticle();
+  }
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
@@ -391,14 +362,16 @@ sprintf(publishStr,
     // SLEEP_MODE_SOFTPOWEROFF = 110 μA
 
 } // end loop()
-//*******************************************************************************************
+
+//***********************************************************************************************
+//***********************************************************************************************
 //************************************               *******************************************************
 //************************************               *******************************************************
 //************************************               *******************************************************
-//*******************************************************************************************
+//***********************************************************************************************
 //------------------------------ Functions --------------------------------------------------
 //
-void Flicker(int n=1)
+void Flicker(size_t n=1)
     {
         for (size_t i = 0; i < n; i++)
         {
@@ -475,18 +448,18 @@ int checkBattery(float charge,float V)
           }
       */
         int min;
-        if (charge>12.5)   //  testing seems to indicate unit stops connecting to internet when too low
+        if (charge>10)   //  testing seems to indicate unit stops connecting to internet when too low
           // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
           // discharging the Electron completely can render it "bricked".
           //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
               {
-                min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                  if (charge>30 )   min = 299;    // 5 hours (300 min)
-                      if (charge>50 )   min = 119;     // 2 hours (120 min)
-                          if (charge>60 )   min = 59;   // 1.5 hours (90 min)
-                                if (charge>70 )   min = 44;     // 60 minutes
-                                    if (charge>80 )   min = 29;      // 30 minutes;
+                min = 420;  // 7 hours (420 min)  // values set to shorter intervals during code testing
+                  if (charge>30 )   min = 300;    // 5 hours (300 min)
+                      if (charge>50 )   min =115;     // 2 hours (120 min)
+                          if (charge>60 )   min = 90;   // 1.5 hours (90 min)
+                                if (charge>70 )   min = 60;     // 60 minutes
+                                    if (charge>80 )   min = 30;      // 30 minutes;
                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
               }
               else
@@ -619,7 +592,6 @@ inline void waitSec(uint32_t seconds)
 //setup the sd card -----------------------------------------
 void setup_SD()
     {
-      //char works[3];
        if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
           else { sprintf(works,"Yes "); }
         Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
@@ -630,7 +602,7 @@ void setup_SD()
                fileName = String("lost-time000.csv");       
         for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
-      //           fileName[9] = '0' + i/100;
+            //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
             fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
@@ -638,7 +610,7 @@ void setup_SD()
           }
         }
           else
-             fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
+             fileName =  String(String(unit_name) + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
         Serial.println(fileName + " filename");
 
         Serial.println(works);
@@ -660,7 +632,7 @@ void writeHeader()
     }
 //------------------------------------------------------------------------------
 // Log a data record.
-void logData(char data[256])
+void logData(char data[150])
     {
     // Write data to file.
         time_t time = Time.now();
@@ -670,7 +642,6 @@ void logData(char data[256])
         file.print(data);
         file.println();
         waitSec(0.5);
-        Serial.println(data);
     }
 //--------------------------------------------------------------------------------
 //close down the SD card
@@ -760,7 +731,7 @@ void takePhoto()
             }
             else
               {
-              fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
+              fileName =  String(String(unit_name) + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
               ///  strcpy(fileName, hold); 
               }
       // Open the file for writing
@@ -931,6 +902,34 @@ void customPower()
     // returns SYSTEM_ERROR_NONE (0) in case of success
     // Settings are persisted, you normally wouldn't do this on every startup.
 }
+void showPMIC()
+  {
+    PMIC power(true);
+    Log.info("Current PMIC settings:");
+    Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
+    Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
+    Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
+    Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
+
+    int powerSource = System.powerSource();
+    int batteryState = System.batteryState();
+    float batterySoc = System.batteryCharge();
+
+    constexpr char const* batteryStates[] = {
+        "unknown", "not charging", "charging",
+        "charged", "discharging", "fault", "disconnected"
+    };
+    constexpr char const* powerSources[] = {
+        "unknown", "vin", "usb host", "usb adapter",
+        "usb otg", "battery"
+    };
+
+    Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
+    Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
+    Log.info("Battery charge: %f", batterySoc);
+    waitSec(0.5);
+  }
+
 void connectToWeb()
     {
     //----------------------------------------------------------------------------------
@@ -988,7 +987,10 @@ void connectToWeb()
     //  ubidots.add("Position", 47.6162, context); // need variable named "Position" to set device location
     // add data to list of items to be sent to Ubidots. Max of 10 items in que. 
         //Limit set in include file ubidots.h  , modified to take 15 adds
+    }
 
+void uploadToUbi()
+      {
     // ---- get cell signal strength & quality
           CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
                                         //So this line has been moved to after the if Cellular.ready statement
@@ -1002,5 +1004,33 @@ void connectToWeb()
         waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
 
         UploadBlink();
-        
-    } 
+      }  
+void  uploadToParticle()
+    {
+    sprintf(publishStr, 
+      "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
+                works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
+      Particle.publish(unit_name, publishStr, 60, PRIVATE);
+      delay(500);
+      //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+      //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+    snprintf(_json, sizeof(_json), 
+      "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+                t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
+        Particle.publish("data", _json, PRIVATE);
+      delay(500);
+    Serial.println("finished uploading");
+      // send warning message to particle console
+    sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+      Particle.publish(unit_name, publishStr,60,PRIVATE);
+    waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
+                            // of "long" to function "delay" frpm Particle console
+    waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
+      // send message to particle console
+    sprintf(publishStr, "sleeping %2i minutes", minutes);
+      ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
+    char event_name[40];
+    sprintf(event_name, " %s_on_%s", unit_name, code_name);
+      Particle.publish(event_name, publishStr,60,PRIVATE);
+    waitSec(1); //wait 1 more seconds
+    }     
