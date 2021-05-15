@@ -81,7 +81,7 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 //String unit_name = "Spudnik-08b";
 #define code_name "particlesolar30c"
 
-SerialLogHandler logHandler;
+//SerialLogHandler logHandler;
 
 ApplicationWatchdog *wd;
 
@@ -214,14 +214,14 @@ void loop()
   FuelGauge fuel; // Initalize the Fuel Gauge so we can call the fuel gauge functions below.
   //--- get battery info
   waitSec(0.5);
-  fuel.quickStart();
+  // fuel.quickStart();
   waitSec(1);
   volts = fuel.getVCell();
   SoC = fuel.getSoC();
   if(usbOn)
     { 
       //Serial.println(fuel.getVersion());
-      Serial.printlnf("quickstart_success= %d i.e. %s", fuel.quickStart(), (fuel.quickStart()?"false":"true"));
+    //  Serial.printlnf("quickstart_success= %d i.e. %s", fuel.quickStart(), (fuel.quickStart()?"false":"true"));
 
       Serial.printlnf("SoC=%6.2f,  volts=%6.2f,  volts/4.4=%5.2f" , SoC,volts,(volts/4.4));
       Serial.printlnf("difference= %5.2f%%", 100*abs(1-(100*volts/4.304)/SoC));
@@ -236,7 +236,7 @@ void loop()
  minutes = checkBattery(SoC,volts);
 
 // setup the SD for logging the data
- setup_SD();
+  setup_SD();
 
   {    // read sensors
   rain = analogRead(RainPin);
@@ -273,6 +273,14 @@ void loop()
         t1 = t1+t1_offset;
         t2 = t2+t2_offset;
     }
+    /////////////   check for too low or too high temperature  //////////////////////
+    if (t1 < -10 || t1 > 40) 
+      {
+        PMIC _pmic; // instantiate an object
+        _pmic.disableCharging();  //stops charging which carries on into sleep
+                                  // but every time unit starts up charging is 
+                                  // re-started and this check is done again
+      }
   // ---- get WATER calculated Specific Conductance and median voltage on sensor
     Sp_C = getSpC() * k;
     Avolts = getAvolts();
@@ -350,8 +358,14 @@ if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots, s
     uploadToUbi();
     uploadToParticle();
   }
+    if(usbOn) {Serial.println("sleeping " + String(minutes)); waitMS(100);}
+   waitSec(seconds);  //wait seconds. seconds is set at beginning to 2 or else by call 
+                     // of "long" to function "delay" from Particle console to 180 seconds
+                     // using function  int delayTime(String delay)
+                     // call "long" from particle console to give a long time to software update
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
+
     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
     // System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval * minutes);  // shuts down SOC meter
     // SLEEP_MODE_DEEP = 161 μA
@@ -423,10 +437,9 @@ void UploadBlink()
 // set sleep time based on battery charge----------------------------
 int checkBattery(float charge,float V)
       {
-      /*  if (SoC <15) {
-          //LowBattBlink();
+        if (charge < 20) {
           LowBattBlink();
-      ///   PMIC pmic;
+          PMIC pmic;
           pmic.disableBATFET();
           // turns off the battery. Unit will still run if power is supplied to VIN,
               // i.e. a solar panel+light
@@ -437,21 +450,21 @@ int checkBattery(float charge,float V)
           // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
           // this routine will:
               //--disable battery if SOC is very low
-              //--wake and run the unit if solar powers VIN
-              //--run on programed schedule if solar powers VIN constantly even if batt < 15%
-              //--charge the battery if solar powers VIN
-              //--be skipped if power to VIN brings battery charge above 15%
+              //--wake and run the unit if solar powers VIN (what happens if solar fades?)
+              //--run on programed schedule if solar powers VIN constantly even if batt < 20%
+              //--charge the battery if solar powers VIN (and it is not to cold or hot)
+              //--be skipped if power to VIN brings battery charge above 20%
           }
-      */
+      
         int min;
-        if (charge>5)   //  testing seems to indicate unit stops connecting to internet when too low
+        if (charge>25)   //  testing seems to indicate unit stops connecting to internet when too low
           // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
           // discharging the Electron completely can render it "bricked".
           //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
               {
                 min = 420;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                  if (charge>20 )   min = 300;    // 5 hours (300 min)
+                  if (charge>35 )   min = 300;    // 5 hours (300 min)
                       if (charge>40 )   min =115;     // 2 hours (120 min)
                           if (charge>60 )   min = 90;   // 1.5 hours (90 min)
                                 if (charge>70 )   min = 60;     // 60 minutes
@@ -459,7 +472,7 @@ int checkBattery(float charge,float V)
                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
               }
               else
-              { // if battery below 10%, don't even try to connect but go to sleep for 9 hours
+              { // if battery below 25%, don't even try to run but go to sleep for 
                   min = 5040;   // sleep 3.5 days (5040 min) if battery very low
             //   sprintf(publishStr, "not connecting, sleeping for %2i min to charge battery ", min);
             //     Serial.println(publishStr);
@@ -892,11 +905,13 @@ void customPower()
     conf.powerSourceMaxCurrent(1200)   //default 900 mA. Set maximum current the power source can provide when powered through VIN.
                                           //1024 results in 900, 1100 results in 900, 1200 results in 1200, 1160 results in 900
         .powerSourceMinVoltage(4840)  //default 3880 (3.88 v). Set minimum voltage required for VIN to be used. 
-                                        // 4840 suggested by RyanB
+                                        // 4840 suggested by RyanB  < https://community.particle.io/t/powering-electron-via-solar-power/30399/2?u=colemanjj >
+                                        // and 5080 by Rftop <https://community.particle.io/t/boron-solar-charging-with-1-5-0-rc1/54680/20?u=colemanjj >
         .batteryChargeCurrent(1000)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
                                           // 1200 results in 1152, 1000 results in 960
-        .batteryChargeVoltage(4208) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
-                                      /// set to 3504 to stop charging from usb
+        .batteryChargeVoltage(4512) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
+                                      // set to 3504 to stop charging from usb
+                                      // set at 4400 (the max allowed) for charging Lead Acid battery
         .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
 
   Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
@@ -1035,8 +1050,7 @@ void  uploadToParticle()
       // send warning message to particle console
     sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
       Particle.publish(unit_name, publishStr,60,PRIVATE);
-    waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
-                            // of "long" to function "delay" frpm Particle console
+   
     waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
       // send message to particle console
     sprintf(publishStr, "sleeping %2i minutes", minutes);

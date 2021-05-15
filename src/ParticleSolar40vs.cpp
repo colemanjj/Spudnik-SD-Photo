@@ -41,9 +41,14 @@
   to serial, tries 1 more minute and then goes back to sleep.
 
 */
+//#define ver = "1.1.0-alpha.1"
+// @ts-check
+// for logging to SD------------
+#include <SPI.h>        //**
+#include <SdFat.h>      //**
+// SD chip select pin.  Be sure to disable any other SPI devices such as Enet.
 void setup();
 void loop();
-void Blink();
 void LowBattBlink();
 void WeakSignalBlink();
 void UploadBlink();
@@ -55,7 +60,7 @@ inline void waitMS(uint32_t timeout);
 inline void waitSec(uint32_t seconds);
 void setup_SD();
 void writeHeader();
-void logData(char data[256]);
+void logData(char data[150]);
 void close_SD();
 void watchdogHandler();
 int delayTime(String delay);
@@ -63,14 +68,11 @@ void takePhoto();
 void dateTime(uint16_t* date, uint16_t* time);
 void setPMIC();
 void customPower();
+void showPMIC();
 void connectToWeb();
-#line 38 "g:/jsc/IoT/particle/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
-#define ver = "1.1.0-alpha.1"
-// @ts-check
-// for logging to SD------------
-#include <SPI.h>        //**
-#include <SdFat.h>      //**
-// SD chip select pin.  Be sure to disable any other SPI devices such as Enet.
+void uploadToUbi();
+void  uploadToParticle();
+#line 44 "g:/jsc/IoT/particle/Spudnik-SD-Photo/src/ParticleSolar40vs.ino"
 const uint8_t chipSelect = SS;  //**
 // create filename as a global variable for use in several functions
 String fileName ;       //**
@@ -107,10 +109,11 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 ///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
 //#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
 #define DATA_SOURCE_NAME "Spudnik-08b"
-//--#define unit_name "Spudnik-08b"
-String unit_name = "Spudnik-08b";
+#define unit_name "Spudnik-08b"
+//String unit_name = "Spudnik-08b";
 #define code_name "particlesolar30c"
-SerialLogHandler logHandler;
+
+//SerialLogHandler logHandler;
 
 ApplicationWatchdog *wd;
 
@@ -118,14 +121,14 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
                     // your_token is defined in sensitive_definitions.h
 
 //*****************************************************
-  #define t1_offset  -0.80 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
-  #define t2_offset  -0.60 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
+//*****************************************************
+  #define t1_offset  -0.7 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
+  #define t2_offset  0.05 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
   #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
 //*****************************************************
-  char publishStr[180]; /// was 30
-  char works[5];  /// was 4
-  const int      MAXRETRY          = 4;
-  int      ii          = 0;
+  char publishStr[150]; /// was 30,  for publishing strings of info
+  char works[5];  /// was 4,  for reporting if SD-card setup worked
+  char _json[150];  // for reporting data to SD-card, and Particle
 //initialize for BME280 bme2 AIR temp, humidity, pressure readings
   float t1 = -99.9;
   float h1 = -99.9;
@@ -133,6 +136,14 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
 //initialize for BME280  bme2 WATER temp, pressure readings
   float t2 = -99.9;
   float p2 = -99.9;
+  float depth = -99.9;
+// initialize variable for reading sensors
+  float Sp_C;     // Specific Conductance returned from TDS sensor routine
+  float Avolts;  //raw voltage returned from TDS sensor
+  float rain;     //
+// initialize battery variables
+  float volts;  // battery voltage
+  float SoC;    // battery charge
 //initialize timing variables
   int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
   int a_minute = 60000; // define a minute as 60000 milli-seconds
@@ -168,15 +179,18 @@ int ledPin = D7;         // LED connected to D7
   // reset the system after 15 min if the application is stuck.  set as an escape from some hangup.
   // watchDog is petted after cell connection estsblished
   //ApplicationWatchdog wDog(90000, watchdogHandler, 512);
+int usbOn = 0;
 
 // ---------SETUP------------
-void setup() {
+void setup() 
+{
   Serial.begin(9600);
+  // waitSec(0.5);
+   Serial.println();
+   waitSec(1.0);
   wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
   // set date time callback function. Do in setup() or loop()?  used to write file datetime to SD-card
   SdFile::dateTimeCallback(dateTime);
-  waitSec(0.5);  
-///    Particle.variable("temp", t2);
 
 //  Do I need to set up D0 and D1 in some way for the BME280s   ????????????
   pinMode(ledPin, OUTPUT);          // Sets pin as output
@@ -184,7 +198,7 @@ void setup() {
   // when processor is shut down
 	pinMode(D3, OUTPUT);     // power for the all digital sensors
 	digitalWrite(D3, HIGH);
-                              //activate the Electron internal pullup resistor but also have a 4.7Kohm pullup on the board
+
 	pinMode(D5, OUTPUT);     // power for SD-card and camera
 	digitalWrite(D5, HIGH);
 
@@ -192,16 +206,16 @@ void setup() {
 	digitalWrite(B0, HIGH);	//
   pinMode(B1, OUTPUT);     // power for analog TDS sensor
   digitalWrite(B1, HIGH);	//
-  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for SD card, set high later
+  pinMode(B2, OUTPUT);     // set high to trigger 3V3 grounding for camera, set high later
   digitalWrite(B2, LOW);	//
 
-  waitSec(0.5); // delay to give time for power to turn on, don't know if this is needed   
+  waitSec(0.1); // delay to give time for power to turn on, don't know if this is needed   
 
-  //ubidots.setDatasourceName(DATA_SOURCE_NAME); //This name will automatically show up in Ubidots the first time you post data.
-  ///setPMIC();
-  // pmic.disableCharging();
   customPower();
-
+      // {  //turn off battery charging
+      //   PMIC _pmic; // instantiate an object
+      //   _pmic.disableCharging();
+      // }
  // setup two BME280s
     if (!bme1.begin(0x77)) // the air sensor BME280 for temp, humidity, pressure
                   //  with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt   check which bme has SD0 held high
@@ -216,61 +230,54 @@ void setup() {
         Particle.publish("ObiDots", "could not find bme1",60,PRIVATE);
       }
 
-  // register a Particle cloud Function.  "Delay" is used from the Particle console to set the delay 
-     // to "long", i.e. delay of 120 seconds for OTA software uploads. otherwise delay defaults to 2 seconds.
+// register a Particle cloud Function.  "Delay" is used from the Particle console to set the delay 
+     // to "long", i.e. delay of 180 seconds for OTA software uploads. otherwise delay defaults to 2 seconds.
   Particle.function("Delay", delayTime);
 
- Serial.println("ending setup");
+  usbOn = Serial.isConnected();
+  if(usbOn)  {Serial.println("ending setup"); waitMS(100);}
+
 } // end setup()
 
 //-----------LOOP
-void loop() {  
-  char event_name[30];
-  //Serial.println("in loop");
+void loop() 
+{  
+  if(usbOn) {Serial.println("in loop"); waitSec(0.1);}
   FuelGauge fuel; // Initalize the Fuel Gauge so we can call the fuel gauge functions below.
   //--- get battery info
-  float volts = fuel.getVCell();
-  float SoC = -99;
+  waitSec(0.5);
+  fuel.quickStart();
+  waitSec(1);
+  volts = fuel.getVCell();
   SoC = fuel.getSoC();
-//SoC = System.batteryCharge();    
-waitSec(1);
-{
-        PMIC power(true);
-        Log.info("Current PMIC settings:");
-        Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
-        Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
-        Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
-        Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
+  if(usbOn)
+    { 
+      //Serial.println(fuel.getVersion());
+    //  Serial.printlnf("quickstart_success= %d i.e. %s", fuel.quickStart(), (fuel.quickStart()?"false":"true"));
 
-        int powerSource = System.powerSource();
-        int batteryState = System.batteryState();
-        float batterySoc = System.batteryCharge();
-
-        constexpr char const* batteryStates[] = {
-            "unknown", "not charging", "charging",
-            "charged", "discharging", "fault", "disconnected"
-        };
-        constexpr char const* powerSources[] = {
-            "unknown", "vin", "usb host", "usb adapter",
-            "usb otg", "battery"
-        };
-
-        Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
-        Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
-        Log.info("Battery charge: %f", batterySoc);
+      Serial.printlnf("SoC=%6.2f,  volts=%6.2f,  volts/4.4=%5.2f" , SoC,volts,(volts/4.4));
+      Serial.printlnf("difference= %5.2f%%", 100*abs(1-(100*volts/4.304)/SoC));
+      Serial.printlnf("mapped volts= %5.2f%%", map((double)volts,3.5,4.304,0.0,100.0));
+      
+      //SoC = System.batteryCharge();    
+      waitSec(0.2);
+      showPMIC();
     }
-waitSec(0.5);
-// setup the SD for logging the data
- setup_SD();
   
 //  set the deep sleep time based on the battery charge
  minutes = checkBattery(SoC,volts);
 
-  float rain = analogRead(RainPin);
+// setup the SD for logging the data
+  setup_SD();
+
+  {    // read sensors
+  rain = analogRead(RainPin);
   digitalWrite(B0, LOW);     //turn off power to the rain sensor, otherwise it interfears
                              // with the next analog sensor (i.e. TDS/Sp.C)
   delay(200);
-  // ---- get AIR temperature and humidity and pressure  // from BME280 using I2C connection
+
+    {   // read BME sensors
+      // ---- get AIR temperature and humidity and pressure  // from BME280 using I2C connection
         int i = 0;
         while(i<2)  // read 2 times to be sure of a good read
              {
@@ -282,7 +289,7 @@ waitSec(0.5);
              }
           if (isnan(p1) || p1<1.0 )
             { h1 = -99.1; t1 = -99.1; p1 = -99.1;  }   // -99.1 is flag for bme read error
-    // ---- get WATER temperature and pressure // from the BME280 using I2C connection. 
+      // ---- get WATER temperature and pressure // from the BME280 using I2C connection. 
           // being used underwater (enclosed in mineral oil) for depth sensor
         i = 0;
         while(i<2)  // read 2 times to be sure of a good read
@@ -297,27 +304,37 @@ waitSec(0.5);
               {  t2 = -99.1; p2 = -99.1;  }    // -99.1 is flag for bme read error
         t1 = t1+t1_offset;
         t2 = t2+t2_offset;
-
-// ---- get WATER calculated Specific Conductance and median voltage on sensor
-    float Sp_C = getSpC() * k;
-    float Avolts = getAvolts();
-// turn off sensor POWER pins after sensors are read
-        digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  and camera
-      //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
+    }
+    /////////////   check for too low or too high temperature  //////////////////////
+    if (t1 < -10 || t1 > 40) 
+      {
+        PMIC _pmic; // instantiate an object
+        _pmic.disableCharging();  //stops charging which carries on into sleep
+                                  // but every time unit starts up charging is 
+                                  // re-started and this check is done again
+      }
+  // ---- get WATER calculated Specific Conductance and median voltage on sensor
+    Sp_C = getSpC() * k;
+    Avolts = getAvolts();
+  // turn off sensor POWER pins after sensors are read
+    digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  and camera
+   //  digitalWrite(D6, LOW);	// not needed because all digital sensors run off D3
     ///digitalWrite(B0, LOW);	// for the rain sensor
-        digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor  
- //        digitalWrite(D5, LOW);	 // for the  camera
+    digitalWrite(B1, LOW);     //for the TDS-Sp.C sensor  
+  //        digitalWrite(D5, LOW);	 // for the  camera
         
-///char context[90];
-//sprintf(context, "tries=%02i", ii);
-// add values to que of data to be uploaded to Ubidots
-///	ubidots.add("time(UTC)",Time.now()/60);
+  ///char context[90];
+  //sprintf(context, "tries=%02i", ii);
+  // add values to que of data to be uploaded to Ubidots
+  ///	ubidots.add("time(UTC)",Time.now()/60);
+  }
 
+{   //write to ubidots
 //char Rain = "Rain";
-char Rain[] = "Rain";
-char AirT[] = "Air-Temp_C";
-char Humid[] = "Humidity_%";
-  float depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
+  char Rain[] = "Rain";
+  char AirT[] = "Air-Temp_C";
+  char Humid[] = "Humidity_%";
+  depth = (p2-p1)*0.40147;  // Hectopascals (hPa) to	Inches Of Water (inH2O)*
 
   ubidots.add(Rain, rain);
 	ubidots.add(Humid, h1);
@@ -331,19 +348,22 @@ char Humid[] = "Humidity_%";
    //if (t2 > -99.0)   // if reading water temperature was successful, send temp and Sp_Cond to Ubidots
   ubidots.add("Sp_Cond", Sp_C);
   ubidots.add("A.volts", Avolts);
-
+}
 //------------------ log data and take photo-------------------------------------------------
 
 // digitalWrite(B2, HIGH);	//   turn on ground for the SD-card
 //  write the data to a SD card before trying to connect
-    char _json[256];
-    snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
-     t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
-    logData(_json);
+  snprintf(_json, sizeof(_json), ", %05.2f, %05.2f, %06.1f, %05.3f, %04.0f, %06.3f, %05.2f, %06.1f, %06.1f, %05.2f, %04.2f",
+                         t1, t2, Sp_C ,Avolts, rain, depth, h1, p1, p2, SoC, volts);
+  logData(_json);
+    if(usbOn)  {Serial.println("logged following data to SD-card"); waitMS(100);}
+    if(usbOn) {Serial.println(_json); waitMS(100);}
     waitSec(0.5);
-    close_SD();
+  close_SD();
+
  //--------------take a photo  --------------------
-if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
+if ( (SoC > 40.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
+                       (Time.hour()==14) || (Time.hour()==15) ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -351,7 +371,7 @@ if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
     waitSec(1);
     digitalWrite(B2, LOW);     //disconnect ground for the camera
   }
-
+/* 
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
   // (sd.ls("/", LS_R) );
@@ -362,59 +382,45 @@ if ( (SoC > 50.0) && ( (Time.hour()==11) || (Time.hour()==15) ) )
   // sprintf(publishStr, " this forces the files to be written to SD %2i minutes", minutes);  
                       // try to get rid of this
   // waitSec(0.5);
+ */
 //--------------------------------------------------------------------------------------------
-/*
-connectToWeb();
-sprintf(publishStr, 
-        "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
-                  works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
-          Particle.publish(unit_name, publishStr, 60, PRIVATE);
-        delay(500);
-    //  char _json[256];
-    //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-    //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
-        snprintf(_json, sizeof(_json), 
-        "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
-                  t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
-          Particle.publish("data", _json, PRIVATE);
-        delay(500);
-        Serial.println("finished uploading");
-        // send warning message to particle console
-        sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
-          Particle.publish(unit_name, publishStr,60,PRIVATE);
-        waitSec(seconds);  //wait seconds. seconds is set at beginning or else by call 
-                              // of "long" to function "delay" frpm Particle console
-        waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
-        // send message to particle console
-        sprintf(publishStr, "sleeping %2i minutes", minutes);
-        sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-          Particle.publish(event_name, publishStr,60,PRIVATE);
-        waitSec(1); //wait 1 more seconds
-    //*************************************
-*/
+
+if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots, set to 50
+  { connectToWeb();
+    uploadToUbi();
+    uploadToParticle();
+  }
+    if(usbOn) {Serial.println("sleeping " + String(minutes)); waitMS(100);}
+   waitSec(seconds);  //wait seconds. seconds is set at beginning to 2 or else by call 
+                     // of "long" to function "delay" from Particle console to 180 seconds
+                     // using function  int delayTime(String delay)
+                     // call "long" from particle console to give a long time to software update
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
+
     System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);   //keeps SOC meter running
     // System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval * minutes);  // shuts down SOC meter
     // SLEEP_MODE_DEEP = 161 μA
     // SLEEP_MODE_SOFTPOWEROFF = 110 μA
 
 } // end loop()
-//*******************************************************************************************
+
+//***********************************************************************************************
+//***********************************************************************************************
 //************************************               *******************************************************
 //************************************               *******************************************************
 //************************************               *******************************************************
-//*******************************************************************************************
-//------------------------------ Functions --------------------------------------------------
+//***********************************************************************************************
+//--------------------------------------Functions --------------------------------------------------
 //
-void Blink()
+void Flicker(size_t n=1)
     {
-        for (size_t i = 0; i < 1; i++)
+        for (size_t i = 0; i < n; i++)
         {
           digitalWrite(ledPin, HIGH);   // Sets the LED on
-          delay(20);                   // Waits for a sec
-          digitalWrite(ledPin, LOW);   // Sets the LED on
-          delay(5);
+          delay(10);                   // Waits for a sec
+          digitalWrite(ledPin, LOW);   // Sets the LED off
+          if (n>1)  delay(60);
         }
     }
 
@@ -463,10 +469,9 @@ void UploadBlink()
 // set sleep time based on battery charge----------------------------
 int checkBattery(float charge,float V)
       {
-      /*  if (SoC <15) {
-          //LowBattBlink();
+        if (charge < 20) {
           LowBattBlink();
-      ///   PMIC pmic;
+          PMIC pmic;
           pmic.disableBATFET();
           // turns off the battery. Unit will still run if power is supplied to VIN,
               // i.e. a solar panel+light
@@ -477,30 +482,30 @@ int checkBattery(float charge,float V)
           // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
           // this routine will:
               //--disable battery if SOC is very low
-              //--wake and run the unit if solar powers VIN
-              //--run on programed schedule if solar powers VIN constantly even if batt < 15%
-              //--charge the battery if solar powers VIN
-              //--be skipped if power to VIN brings battery charge above 15%
+              //--wake and run the unit if solar powers VIN (what happens if solar fades?)
+              //--run on programed schedule if solar powers VIN constantly even if batt < 20%
+              //--charge the battery if solar powers VIN (and it is not to cold or hot)
+              //--be skipped if power to VIN brings battery charge above 20%
           }
-      */
+      
         int min;
-        if (charge>12.5)   //  testing seems to indicate unit stops connecting to internet when too low
+        if (charge>25)   //  testing seems to indicate unit stops connecting to internet when too low
           // with a FLCapacitor in parallel with battery, connection continues even when as low as 10%
           // discharging the Electron completely can render it "bricked".
           //   see: https://community.particle.io/t/bug-bounty-electron-not-booting-after-battery-discharges-completely/
           //  Getting it wet will do that also. //   see: https://community.particle.io/t/recover-electron-from-beaver-attack/
               {
-                min = 600;  // 7 hours (420 min)  // values set to shorter intervals during code testing
-                  if (charge>30 )   min = 299;    // 5 hours (300 min)
-                      if (charge>50 )   min = 119;     // 2 hours (120 min)
-                          if (charge>60 )   min = 59;   // 1.5 hours (90 min)
-                                if (charge>70 )   min = 44;     // 60 minutes
-                                    if (charge>80 )   min = 29;      // 30 minutes;
+                min = 420;  // 7 hours (420 min)  // values set to shorter intervals during code testing
+                  if (charge>35 )   min = 300;    // 5 hours (300 min)
+                      if (charge>40 )   min =115;     // 2 hours (120 min)
+                          if (charge>60 )   min = 90;   // 1.5 hours (90 min)
+                                if (charge>70 )   min = 60;     // 60 minutes
+                                    if (charge>80 )   min = 30;      // 30 minutes;
                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
               }
               else
-              { // if battery below 12.5%, don't even try to connect but go to sleep for 9 hours
-                  min = 432000;   // sleep 5 days if battery very low
+              { // if battery below 25%, don't even try to run but go to sleep for 
+                  min = 5040;   // sleep 3.5 days (5040 min) if battery very low
             //   sprintf(publishStr, "not connecting, sleeping for %2i min to charge battery ", min);
             //     Serial.println(publishStr);
                   LowBattBlink();
@@ -628,7 +633,6 @@ inline void waitSec(uint32_t seconds)
 //setup the sd card -----------------------------------------
 void setup_SD()
     {
-      //char works[3];
        if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
           else { sprintf(works,"Yes "); }
         Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
@@ -639,7 +643,7 @@ void setup_SD()
                fileName = String("lost-time000.csv");       
         for (int i = 0; i < 1000; i++) {
             fileName.String::operator[](9) = '0' + i/100;
-      //           fileName[9] = '0' + i/100;
+            //           fileName[9] = '0' + i/100;
             fileName.String::operator[](10) = '0' + i/10;
             fileName.String::operator[](11) = '0' + i%10;
             // create if does not exist, do not open existing, write, sync after write
@@ -647,10 +651,12 @@ void setup_SD()
           }
         }
           else
-             fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
-        Serial.println(fileName + " filename");
-
-        Serial.println(works);
+             fileName =  String(String(unit_name) + "_" + Time.format(Time.now(),"%Y-%m-%d") + ".csv");    //**
+          
+        { 
+           if(usbOn) {Serial.println("card filename " + fileName); waitMS(100);}
+           if(usbOn) {Serial.println("card works " + String(works)); waitMS(100);}
+        }  
         if(sd.exists(fileName))
             {  file.open(fileName, O_WRONLY | O_APPEND);  }
             else
@@ -669,7 +675,7 @@ void writeHeader()
     }
 //------------------------------------------------------------------------------
 // Log a data record.
-void logData(char data[256])
+void logData(char data[150])
     {
     // Write data to file.
         time_t time = Time.now();
@@ -679,7 +685,6 @@ void logData(char data[256])
         file.print(data);
         file.println();
         waitSec(0.5);
-        Serial.println(data);
     }
 //--------------------------------------------------------------------------------
 //close down the SD card
@@ -697,12 +702,12 @@ void close_SD()
       if ( file.close() && sd.exists(fileName) )  {
         sprintf(publishStr, "SD-write worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
-         Serial.println((publishStr));
+           if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
         else {
         sprintf(publishStr, "SD-write FAILED at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
-         Serial.println((publishStr));
+           if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
     }
 
@@ -732,9 +737,9 @@ void takePhoto()
       waitSec(0.5);
       // locatecamera
       if (cam.begin()) {
-        Serial.println("Camera Found:");
+         if(usbOn) {Serial.println("Camera Found:"); waitMS(100);}
       } else {
-        Serial.println("No camera found?");
+         if(usbOn) {Serial.println("No camera found?"); waitMS(100);}
         }
       waitSec(0.5);
       // Print out the camera version information (optional)
@@ -743,15 +748,15 @@ void takePhoto()
     ///   Serial.print("Failed to get version");
         } else {
         //  Serial.println("-----------------");
-          Serial.print(reply);
+            if(usbOn) {Serial.print(reply); waitMS(100);}
         //  Serial.println("-----------------");
         }
-      Serial.println("Snap in 1/2 secs...");
+         if(usbOn) {Serial.println("Snap in 1/2 secs..."); waitMS(100);}
       delay(500);
       if (! cam.takePicture()) 
-          Serial.println("Failed to snap!");
+           if(usbOn) {Serial.println("Failed to snap!"); waitMS(100);}
         else 
-          Serial.println("Picture taken!");   
+           if(usbOn) {Serial.println("Picture taken!"); waitMS(100);}  
 
       // setupFile
       if(! Time.isValid()) 
@@ -769,7 +774,7 @@ void takePhoto()
             }
             else
               {
-              fileName =  String(unit_name + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
+              fileName =  String(String(unit_name) + "_" + Time.format(Time.now(),"%Y-%m-%d-%H-%M") + ".jpg");    
               ///  strcpy(fileName, hold); 
               }
       // Open the file for writing
@@ -778,41 +783,52 @@ void takePhoto()
       // writePhotoToFile
       // Get the size of the image (frame) taken  
         uint16_t jpglen = cam.frameLength();
-        Serial.print(jpglen, DEC);
-        Serial.print(" byte image. ");
-        Serial.println(fileName);
+         
+        {
+           if(usbOn) {Serial.print(jpglen, DEC); waitMS(100);}
+           if(usbOn) {Serial.println(" byte image. "); waitMS(100);}
+           if(usbOn) {Serial.println("photo filename " + fileName); waitMS(100);}
+        }
 
         int32_t time = millis();
         pinMode(8, OUTPUT);
       // Read all the data up to # bytes!
         byte wCount = 0; // For counting # of writes
-        while (jpglen > 0) {
+        while (jpglen > 0) 
+        {
           // read 32 bytes at a time;
           uint8_t *buffer;
-          uint8_t bytesToRead = min(64, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
+          uint8_t bytesToRead = min(32, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
           buffer = cam.readPicture(bytesToRead);
           file.write(buffer, bytesToRead);
-          if(++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
+          if(++wCount >= 64) 
+          { // Every 2K, give a little feedback so it doesn't appear locked up
           //  Serial.print('.');
-            Blink();
+            Flicker(1);
             wCount = 0;
           }
           jpglen -= bytesToRead;
         }
+        waitSec(0.1);
       file.sync();  // to update file date
-      if ( file.close() && sd.exists(fileName) )  {
+      if ( file.close() && sd.exists(fileName) )  
+        {
         sprintf(publishStr, "Photo-save worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
-         Serial.println((publishStr));
+           if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
-        else {
+        else 
+        {
         sprintf(publishStr, "Photo-save FAILED at %s", 
                             Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
-         Serial.println((publishStr));
+           if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
        // file.close();
+        
+       {
           time = millis() - time;
-          Serial.print(time); Serial.println(" ms elapsed");
+           if(usbOn) {Serial.print(time); Serial.println(" ms elapsed"); waitMS(100);}
+       }
     }
 
 // dateTime stores current datetime in the right format for FAT
@@ -921,11 +937,13 @@ void customPower()
     conf.powerSourceMaxCurrent(1200)   //default 900 mA. Set maximum current the power source can provide when powered through VIN.
                                           //1024 results in 900, 1100 results in 900, 1200 results in 1200, 1160 results in 900
         .powerSourceMinVoltage(4840)  //default 3880 (3.88 v). Set minimum voltage required for VIN to be used. 
-                                        // 4840 suggested by RyanB
+                                        // 4840 suggested by RyanB  < https://community.particle.io/t/powering-electron-via-solar-power/30399/2?u=colemanjj >
+                                        // and 5080 by Rftop <https://community.particle.io/t/boron-solar-charging-with-1-5-0-rc1/54680/20?u=colemanjj >
         .batteryChargeCurrent(1000)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
                                           // 1200 results in 1152, 1000 results in 960
-        .batteryChargeVoltage(4208) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
-                                      /// set to 3504 to stop charging from usb
+        .batteryChargeVoltage(4512) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
+                                      // set to 3504 to stop charging from usb
+                                      // set at 4400 (the max allowed) for charging Lead Acid battery
         .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
 
   Serial.println(System.setPowerConfiguration(conf)); // 0 means no error 
@@ -935,6 +953,34 @@ void customPower()
     // returns SYSTEM_ERROR_NONE (0) in case of success
     // Settings are persisted, you normally wouldn't do this on every startup.
 }
+void showPMIC()
+  {
+    PMIC power(true);
+    Log.info("Current PMIC settings:");
+    Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
+    Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
+    Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
+    Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
+
+    int powerSource = System.powerSource();
+    int batteryState = System.batteryState();
+    float batterySoc = System.batteryCharge();
+
+    constexpr char const* batteryStates[] = {
+        "unknown", "not charging", "charging",
+        "charged", "discharging", "fault", "disconnected"
+      };
+    constexpr char const* powerSources[] = {
+        "unknown", "vin", "usb host", "usb adapter",
+        "usb otg", "battery"
+      };
+
+    Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
+    Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
+    Log.info("Battery charge: %f", batterySoc);
+    waitSec(0.5);
+  }
+
 void connectToWeb()
     {
     //----------------------------------------------------------------------------------
@@ -956,7 +1002,7 @@ void connectToWeb()
                 WeakSignalBlink();
                 delay(500);
                 WeakSignalBlink();
-                Serial.println("Difficulty connecting. Will try for 1 more min");
+                  if(usbOn) {Serial.println("Difficulty connecting. Will try for 1 more min"); waitMS(100);}
                 delay(500);
             }   
           // check a second time to make sure it is connected, if not, try for 1 more minute
@@ -966,8 +1012,15 @@ void connectToWeb()
                 delay(500);
                 WeakSignalBlink();
                   sprintf(publishStr, " sleeping for %2i minutes to wait for better time ", minutes);
-                    Serial.print("Difficulty connecting, sleeping");   Serial.println(publishStr);
-                delay(500);
+                   
+                  {
+                     if(usbOn) 
+                     {  Serial.print("Difficulty connecting, sleeping");   
+                        Serial.println(publishStr);
+                        waitMS(100);
+                     }
+                  }
+                delay(200);
                 //System.sleep(SLEEP_MODE_SOFTPOWEROFF, sleepInterval*minutes);
                 System.sleep(SLEEP_MODE_DEEP, sleepInterval * minutes);
                 // if can't connect for a second time, go to deep sleep for
@@ -981,7 +1034,7 @@ void connectToWeb()
           wd->checkin();  
           
           Particle.publish("particle", "connected",60,PRIVATE);
-          Serial.println("connected");
+             if(usbOn) {Serial.println("connected"); waitMS(100);}
     ///     } // resets the ApplicationWatchdog count if connected
                   // to cell and connected to Particle cloud.
       
@@ -992,7 +1045,10 @@ void connectToWeb()
     //  ubidots.add("Position", 47.6162, context); // need variable named "Position" to set device location
     // add data to list of items to be sent to Ubidots. Max of 10 items in que. 
         //Limit set in include file ubidots.h  , modified to take 15 adds
+    }
 
+void uploadToUbi()
+      {
     // ---- get cell signal strength & quality
           CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
                                         //So this line has been moved to after the if Cellular.ready statement
@@ -1006,5 +1062,33 @@ void connectToWeb()
         waitSec(5);  //give enough time for unit to receive Function call to set the delayTime in seconds
 
         UploadBlink();
-        
-    } 
+      }  
+
+void  uploadToParticle()
+    {
+    sprintf(publishStr, 
+      "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
+                works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
+      Particle.publish(unit_name, publishStr, 60, PRIVATE);
+      delay(500);
+      //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+      //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
+    snprintf(_json, sizeof(_json), 
+      "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
+                t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
+        Particle.publish("data", _json, PRIVATE);
+      delay(500);
+       if(usbOn) {Serial.println("finished uploading"); waitMS(100);}
+      // send warning message to particle console
+    sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+      Particle.publish(unit_name, publishStr,60,PRIVATE);
+   
+    waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
+      // send message to particle console
+    sprintf(publishStr, "sleeping %2i minutes", minutes);
+      ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
+    char event_name[40];
+    sprintf(event_name, " %s_on_%s", unit_name, code_name);
+      Particle.publish(event_name, publishStr,60,PRIVATE);
+    waitSec(1); //wait 1 more seconds
+    }     
