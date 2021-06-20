@@ -3,3 +3,10 @@ src/ParticleSolar40vs.cpp
 src/backups/ParticleSolar40vs - Copy.ino.back15
 src/backups/ParticleSolar40vs - Copy.ino.back16
 src/backups/*
+*.bin
+*.elf
+*.hex
+*.map
+target/*
+lib/*
+*.json
