@@ -79,7 +79,7 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 #define DATA_SOURCE_NAME "Spudnik-08b"
 #define unit_name "Spudnik-08b"
 //String unit_name = "Spudnik-08b";
-#define code_name "particlesolar30c"
+#define code_name "particlesolar40vs"
 
 //SerialLogHandler logHandler;
 
@@ -116,7 +116,7 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
   int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
   int a_minute = 60000; // define a minute as 60000 milli-seconds
   int minutes = 60;  // default minutes to sleep
-  int seconds = 2;
+  int seconds = 5;
 /*
 D0 = SDA for temp/humid/pressure sensor (BME280)
 D1 = SCL for temp/humid/pressure sensor (BME280)
@@ -144,8 +144,7 @@ B2 = used as a digital signal pin to switch a NpN transister to turn on/off grou
 int RainPin = A1;
 int SpCSensorPin  = A0;
 int ledPin = D7;         // LED connected to D7
-  // reset the system after 15 min if the application is stuck.  set as an escape from some hangup.
-  // watchDog is petted after cell connection estsblished
+
   //ApplicationWatchdog wDog(90000, watchdogHandler, 512);
 int usbOn = 0;
 
@@ -156,6 +155,8 @@ void setup()
   // waitSec(0.5);
    Serial.println();
    waitSec(1.0);
+  // reset the system after 10 min if the application is stuck.  set as an escape from some hangup.
+  // watchDog is petted after cell connection estsblished
   wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
   // set date time callback function. Do in setup() or loop()?  used to write file datetime to SD-card
   SdFile::dateTimeCallback(dateTime);
@@ -274,7 +275,7 @@ void loop()
         t2 = t2+t2_offset;
     }
     /////////////   check for too low or too high temperature  //////////////////////
-    if (t1 < -10 || t1 > 40) 
+    if (t1 < -15 || t1 > 40) 
       {
         PMIC _pmic; // instantiate an object
         _pmic.disableCharging();  //stops charging which carries on into sleep
@@ -353,7 +354,7 @@ if ( (SoC > 40.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
  */
 //--------------------------------------------------------------------------------------------
 
-if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots, set to 50
+if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots, set to 50 ??????????
   { connectToWeb();
     uploadToUbi();
     uploadToParticle();
@@ -435,7 +436,7 @@ void UploadBlink()
         }
     }
 // set sleep time based on battery charge----------------------------
-int checkBattery(float charge,float V)
+int checkBattery(float charge,float V)          // redo this based on 29.ino ???????????????????
       {
         if (charge < 20) {
           LowBattBlink();
@@ -454,6 +455,9 @@ int checkBattery(float charge,float V)
               //--run on programed schedule if solar powers VIN constantly even if batt < 20%
               //--charge the battery if solar powers VIN (and it is not to cold or hot)
               //--be skipped if power to VIN brings battery charge above 20%
+
+              // does the pmic go back to default when waking from deepsleep?  seems so see:
+              // https://community.particle.io/t/electron-solar-charging-rates-and-sleep/37351/6
           }
       
         int min;
@@ -1020,8 +1024,10 @@ void uploadToUbi()
     // ---- get cell signal strength & quality
           CellularSignal sig = Cellular.RSSI();  //this may hang up the system if no connection.
                                         //So this line has been moved to after the if Cellular.ready statement
-          ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
-          ubidots.add("CellStren", sig.rssi);
+      //    ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
+      //    ubidots.add("CellStren", sig.rssi);
+      ubidots.add("CellQual", sig.getQuality()); //value location will show up as Ubidots "context"
+      ubidots.add("CellStren", sig.getStrength());
     //
     //  send the the data to Ubidots after it has been added
           ubidots.send(DATA_SOURCE_NAME,DATA_SOURCE_NAME); // Send rest of the data to your Ubidots account.
