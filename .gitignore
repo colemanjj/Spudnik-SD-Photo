@@ -1,6 +1,6 @@
 *.cpp
 .vscode/settings.json
-backups/*
+src/backups/*
 *.bin
 *.elf
 *.hex
