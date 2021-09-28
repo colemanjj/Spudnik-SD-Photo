@@ -4,7 +4,7 @@
   Water   Temperature                       --from BME280 in oil for depth
           Specific conductance              --Gravity: Analog TDS Sensor/Meter
           Water Depth                       --a BME280 in mineral oil measuring pressure
-  Air     Temperature, Humidity, Pressure   --BME280
+  /Air     Temperature, Humidity, Pressure   --BME280
   Rain	  Index of intensity                --generic Rain / Water Level Sensor
   Battery Percent charge                    --internal to Electron
           Charge voltage                    --internal to Electron
