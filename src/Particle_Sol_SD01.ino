@@ -356,7 +356,7 @@ if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
  */
 //--------------------------------------------------------------------------------------------
 
-if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, set to 50 ??????????
+if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, set to 50 ????
   { connectToWeb();
     uploadToUbi();
     uploadToParticle();
@@ -455,6 +455,7 @@ int checkBattery(float charge,float V)          // redo this based on 29.ino ???
           LowBattBlink();
           PMIC pmic;
           pmic.disableBATFET();
+          // to prevent complete discharge of battery which may brick the particle board
           // turns off the battery. Unit will still run if power is supplied to VIN,
               // i.e. a solar panel+light
           // unit will stay on programed schedule of waking if power to VIN maintained
@@ -462,6 +463,7 @@ int checkBattery(float charge,float V)          // redo this based on 29.ino ???
           // if power re-applied to VIN, unit boots up, disables battery again but continues with
               //program, including reporting to web
           // pwerer to VIN, i.e. solar+light, will charge battery even if disableBATFET()
+          // if power applied very slowly, i.e. gradual increase in light on panel, then no boot
           // this routine will:
               //--disable battery if SOC is very low
               //--wake and run the unit if solar powers VIN (what happens if solar fades?)
@@ -866,7 +868,7 @@ void setPMIC()
           // see: https://community.particle.io/t/pmic-only-sometimes-not-charging-when-battery-voltage-is-below-3-5v/30346
       //      pmic.setInputVoltageLimit(4040); //to get some charge in low light? not sure this helps
       ///pmic.setInputVoltageLimit(5080);
-      /*************************from: https://github.com/particle-iot/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
+      /******************from: https://github.com/particle-iot/firmware/blob/develop/wiring/src/spark_wiring_power.cpp
       * Function Name  : setInputVoltageLimit
       * Description    : set the minimum acceptable input voltage
       * Input          : 3880mV to 5080mV in the increments of 80mV
@@ -926,7 +928,7 @@ void customPower()
                                         // and 5080 by Rftop <https://community.particle.io/t/boron-solar-charging-with-1-5-0-rc1/54680/20?u=colemanjj >
         .batteryChargeCurrent(1000)  //default 896 mA. Sets the battery charge current. The actual charge current is the lesser of powerSourceMaxCurrent and batteryChargeCurrent.
                                           // 1200 results in 1152, 1000 results in 960
-        .batteryChargeVoltage(4512) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
+        .batteryChargeVoltage(4208) //default 4112 (4.112 v) use 4208 to get 90% charge. Sets the battery charge termination voltage.
                                       // set to 3504 to stop charging from usb
                                       // set at 4400 (the max allowed) for charging Lead Acid battery
         .feature(SystemPowerFeature::USE_VIN_SETTINGS_WITH_USB_HOST);
@@ -938,7 +940,7 @@ void customPower()
     // returns SYSTEM_ERROR_NONE (0) in case of success
     // Settings are persisted, you normally wouldn't do this on every startup.
 }
-void showPMIC()
+void showPMIC()  // reads values from the PMIC and displayes if usb connected
   {
     PMIC power(true);
     Log.info("Current PMIC settings:");
