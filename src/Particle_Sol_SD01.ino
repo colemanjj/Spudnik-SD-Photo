@@ -4,7 +4,7 @@
   Water   Temperature                       --from BME280 in oil for depth
           Specific conductance              --Gravity: Analog TDS Sensor/Meter
           Water Depth                       --a BME280 in mineral oil measuring pressure
-  /Air     Temperature, Humidity, Pressure   --BME280
+  Air     Temperature, Humidity, Pressure   --BME280
   Rain	  Index of intensity                --generic Rain / Water Level Sensor
   Battery Percent charge                    --internal to Electron
           Charge voltage                    --internal to Electron
@@ -318,7 +318,7 @@ void loop()
   ubidots.add("Sp_Cond", Sp_C);
   ubidots.add("A.volts", Avolts);
 }
-//------------------ log data and take photo-------------------------------------------------
+//------------------ log data to SD card -------------------------------------------------
 
 // digitalWrite(B2, HIGH);	//   turn on ground for the SD-card
 //  write the data to a SD card before trying to connect
@@ -329,8 +329,8 @@ void loop()
     if(usbOn) {Serial.println(_json); waitMS(100);}
     waitSec(0.5);
   close_SD();
-
- //--------------take a photo  --------------------
+/*
+ //--------------take a photo and save on SD card  --------------------
 if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
                        (Time.hour(-6)==14) || (Time.hour(-6)==15) ) )
   {  
@@ -340,6 +340,8 @@ if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
     waitSec(1);
     digitalWrite(B2, LOW);     //disconnect ground for the camera
   }
+  */
+ 
 /* 
 //list files on SD to terminal
   cout <<  F("\nList of files on the SD.\n");
