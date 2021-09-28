@@ -1,4 +1,4 @@
-# ParticleSolar30vs
+# ParticleSolar
 
 A Particle project named ParticleSolar30vs
 
