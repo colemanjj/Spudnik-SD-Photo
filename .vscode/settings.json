@@ -6,7 +6,7 @@
         "*.ino": "cpp"
     },
     "particle.targetPlatform": "electron",
-    "particle.targetDevice": "Spudnik-11",
+    "particle.targetDevice": "Spudnik-31",
     "showUnsavedChanges.clearOnSave": true,
     "particle.firmwareVersion": "3.0.0"
 }

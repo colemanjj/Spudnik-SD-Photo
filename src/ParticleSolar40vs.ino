@@ -76,8 +76,8 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
     // Particle.connect() is not called at the beginning of your code;  With semi-automatic you must call Particle.connect() yourself
 ///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
 //#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
-#define DATA_SOURCE_NAME "Spudnik-08b"
-#define unit_name "Spudnik-08b"
+#define DATA_SOURCE_NAME "Spudnik-31ds"
+#define unit_name "Spudnik-31"
 //String unit_name = "Spudnik-08b";
 #define code_name "particlesolar40vs"
 
@@ -331,8 +331,8 @@ void loop()
   close_SD();
 
  //--------------take a photo  --------------------
-if ( (SoC > 40.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
-                       (Time.hour()==14) || (Time.hour()==15) ) )
+if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
+                       (Time.hour(-6)==14) || (Time.hour(-6)==15) ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -354,16 +354,27 @@ if ( (SoC > 40.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
  */
 //--------------------------------------------------------------------------------------------
 
-if (SoC >90)   // if enough charge connect and upload to Particle and Ubidots, set to 50 ??????????
+if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, set to 50 ??????????
   { connectToWeb();
     uploadToUbi();
     uploadToParticle();
   }
+  // send warning message to particle console
+    sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+      Particle.publish(unit_name, publishStr,60,PRIVATE);
     if(usbOn) {Serial.println("sleeping " + String(minutes)); waitMS(100);}
-   waitSec(seconds);  //wait seconds. seconds is set at beginning to 2 or else by call 
+   waitSec(seconds);  //wait seconds. seconds is set at beginning to 5 or else by call 
                      // of "long" to function "delay" from Particle console to 180 seconds
                      // using function  int delayTime(String delay)
                      // call "long" from particle console to give a long time to software update
+    waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
+      // send message to particle console
+    sprintf(publishStr, "sleeping %2i minutes", minutes);
+      ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
+    char event_name[40];
+    sprintf(event_name, " %s_on_%s", unit_name, code_name);
+      Particle.publish(event_name, publishStr,60,PRIVATE);
+
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
 
@@ -673,12 +684,12 @@ void close_SD()
         
       if ( file.close() && sd.exists(fileName) )  {
         sprintf(publishStr, "SD-write worked at %s", 
-                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+                            Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
         else {
         sprintf(publishStr, "SD-write FAILED at %s", 
-                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+                            Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
     }
@@ -786,13 +797,13 @@ void takePhoto()
       if ( file.close() && sd.exists(fileName) )  
         {
         sprintf(publishStr, "Photo-save worked at %s", 
-                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+                            Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
         else 
         {
         sprintf(publishStr, "Photo-save FAILED at %s", 
-                            Time.format(Time.now(),"%Y-%m-%d-%H-%M").c_str());
+                            Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
        // file.close();
@@ -1053,16 +1064,6 @@ void  uploadToParticle()
         Particle.publish("data", _json, PRIVATE);
       delay(500);
        if(usbOn) {Serial.println("finished uploading"); waitMS(100);}
-      // send warning message to particle console
-    sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
-      Particle.publish(unit_name, publishStr,60,PRIVATE);
-   
-    waitMS(1000);  // 1 second delay with call to Particle.process() to allow time for OTA flashing
-      // send message to particle console
-    sprintf(publishStr, "sleeping %2i minutes", minutes);
-      ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-    char event_name[40];
-    sprintf(event_name, " %s_on_%s", unit_name, code_name);
-      Particle.publish(event_name, publishStr,60,PRIVATE);
+    
     waitSec(1); //wait 1 more seconds
     }     
