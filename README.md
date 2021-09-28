@@ -1,6 +1,6 @@
-# ParticleSolar30vs
+# Spudnik
 
-A Particle project named ParticleSolar30vs
+A Particle project derived from ParticleSolar30vs and Spudnik-SD-Photo
 
 ## Welcome to your project!
 
