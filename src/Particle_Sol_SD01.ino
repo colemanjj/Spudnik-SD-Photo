@@ -79,7 +79,8 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 #define DATA_SOURCE_NAME "Spudnik-31ds"
 #define unit_name "Spudnik-31"
 //String unit_name = "Spudnik-08b";
-#define code_name "particlesolar40vs"
+//#define code_name String("particlesolar40vs")
+#define code_name String("Particle_Sol_SD"+Time.year(-6)+Time.month(-6)+Time.day(-6))
 
 //SerialLogHandler logHandler;
 
@@ -373,9 +374,10 @@ if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, s
       // send message to particle console
     sprintf(publishStr, "sleeping %2i minutes", minutes);
       ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-    char event_name[40];
-    sprintf(event_name, " %s_on_%s", unit_name, code_name);
-      Particle.publish(event_name, publishStr,60,PRIVATE);
+    char event[40];
+    sprintf(event, " %s_on_%s", unit_name, code_name);
+      Particle.publish(event, publishStr,60,PRIVATE);
+    waitSec(2);
 
 //  Go to sleep for the amount of time determined by the battery charge
 //  for sleep modes see:https://community.particle.io/t/choosing-an-electron-sleep-mode/41822?u=colemanjj
@@ -705,7 +707,7 @@ void watchdogHandler()
       // or similar functions. You can save data to a retained variable
       // here safetly so you know the watchdog triggered when you restart.
       // In 2.0.0 and later, System.reset(RESET_NO_WAIT); prevents notifying the cloud of a pending reset
-      System.reset();
+      System.reset(RESET_NO_WAIT);
     }
 
 int delayTime(String delay)
