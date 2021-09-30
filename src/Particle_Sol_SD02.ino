@@ -35,7 +35,6 @@
   to serial, tries 1 more minute and then goes back to sleep.
 
 */
-//#define ver = "1.1.0-alpha.1"
 // @ts-check
 // for logging to SD------------
 #include <SPI.h>        //**
@@ -80,7 +79,18 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 #define unit_name "Spudnik-31"
 //String unit_name = "Spudnik-08b";
 //#define code_name String("particlesolar40vs")
-#define code_name String("Particle_Sol_SD"+Time.year(-6)+Time.month(-6)+Time.day(-6))
+#define code "Particle_Sol_SD"
+#define code_date "d20210930"
+#define version "1.0.4"
+//#define version "<!#FV> 1.0.4 </#FV>"
+
+//$define code_date="<!#FT> 2021/09/30 15:41:40.229 </#FT>"
+//Time.year(-6)+Time.month(-6)+Time.day(-6))
+//char code_name = char("Particle_Sol_SD"+"test");
+//String content;
+ //sprintf(content, Time.year()+Time.month()+Time.day() );
+ //   sprintf(content,code,Time.year(),Time.month(),Time.day());
+ //char test = sprintf("test1 %2i",Time.year());
 
 //SerialLogHandler logHandler;
 
@@ -117,7 +127,7 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
   int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
   int a_minute = 60000; // define a minute as 60000 milli-seconds
   int minutes = 60;  // default minutes to sleep
-  int seconds = 5;
+  int seconds = 10;  // default delay after uploading before going to sleep
 /*
 D0 = SDA for temp/humid/pressure sensor (BME280)
 D1 = SCL for temp/humid/pressure sensor (BME280)
@@ -152,10 +162,12 @@ int usbOn = 0;
 // ---------SETUP------------
 void setup() 
 {
+  Time.zone(-6);
   Serial.begin(9600);
   // waitSec(0.5);
    Serial.println();
    waitSec(1.0);
+
   // reset the system after 10 min if the application is stuck.  set as an escape from some hangup.
   // watchDog is petted after cell connection estsblished
   wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
@@ -332,8 +344,8 @@ void loop()
   close_SD();
 /*
  //--------------take a photo and save on SD card  --------------------
-if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
-                       (Time.hour(-6)==14) || (Time.hour(-6)==15) ) )
+if ( (SoC > 60.0) && ( (Time.hour()==10) || (Time.hour()==11) ||
+                       (Time.hour()==14) || (Time.hour()==15) ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -363,8 +375,13 @@ if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, s
     uploadToParticle();
   }
   // send warning message to particle console
+    ///char code_date[32];
+    ///sprintf(code_date,"%s_%4i%02i%02i", code,Time.year(),Time.month(),Time.day());
+    char event[60];
+    sprintf(event, " %s_on_%s%s", unit_name, code_date,version);
+
     sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
-      Particle.publish(unit_name, publishStr,60,PRIVATE);
+      Particle.publish(event, publishStr,60,PRIVATE);
     if(usbOn) {Serial.println("sleeping " + String(minutes)); waitMS(100);}
    waitSec(seconds);  //wait seconds. seconds is set at beginning to 5 or else by call 
                      // of "long" to function "delay" from Particle console to 180 seconds
@@ -374,9 +391,8 @@ if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, s
       // send message to particle console
     sprintf(publishStr, "sleeping %2i minutes", minutes);
       ///sprintf(event_name, " %s_on_%s", unit_name.c_str(), code_name);
-    char event[40];
-    sprintf(event, " %s_on_%s", unit_name, code_name);
-      Particle.publish(event, publishStr,60,PRIVATE);
+
+      Particle.publish(unit_name, publishStr,60,PRIVATE);
     waitSec(2);
 
 //  Go to sleep for the amount of time determined by the battery charge
@@ -712,7 +728,7 @@ void watchdogHandler()
 
 int delayTime(String delay)
     { if(delay == "long")
-        {seconds=180;   // creat enough delay time to flash the unit
+        {seconds=200;   // creat enough delay time to flash the unit
         Particle.publish("Particle", "in delayTime",60,PRIVATE);
         return 1; }
       else 
