@@ -80,11 +80,11 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
 //String unit_name = "Spudnik-08b";
 //#define code_name String("particlesolar40vs")
 #define code "Particle_Sol_SD"
-#define code_date "d20210930"
-#define version "1.0.4"
-//#define version "<!#FV> 1.0.4 </#FV>"
+#define code_date "20210930_"
+#define version "1.0.8"
+//#define version "<!#FV> 1.0.8 </#FV>"
 
-//$define code_date="<!#FT> 2021/09/30 15:41:40.229 </#FT>"
+//$define code_date="<!#FT> 2021/09/30 21:04:50.744 </#FT>"
 //Time.year(-6)+Time.month(-6)+Time.day(-6))
 //char code_name = char("Particle_Sol_SD"+"test");
 //String content;
@@ -93,6 +93,7 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
  //char test = sprintf("test1 %2i",Time.year());
 
 //SerialLogHandler logHandler;
+SerialLogHandler logHandler(LOG_LEVEL_WARN);
 
 ApplicationWatchdog *wd;
 
@@ -378,7 +379,7 @@ if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, s
     ///char code_date[32];
     ///sprintf(code_date,"%s_%4i%02i%02i", code,Time.year(),Time.month(),Time.day());
     char event[60];
-    sprintf(event, " %s_on_%s%s", unit_name, code_date,version);
+    sprintf(event, " %s_w_%s%s%s", unit_name, code,code_date,version);
 
     sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
       Particle.publish(event, publishStr,60,PRIVATE);
@@ -505,7 +506,7 @@ int checkBattery(float charge,float V)          // redo this based on 29.ino ???
                       if (charge>40 )   min =115;     // 2 hours (120 min)
                           if (charge>60 )   min = 90;   // 1.5 hours (90 min)
                                 if (charge>70 )   min = 60;     // 60 minutes
-                                    if (charge>80 )   min = 30;      // 30 minutes;
+                                    if (charge>85 )   min = 30;      // 30 minutes;
                   // after sleep time is set based on battery charge, go on to read sensors and report to internet
               }
               else
@@ -758,10 +759,10 @@ void takePhoto()
         }
          if(usbOn) {Serial.println("Snap in 1/2 secs..."); waitMS(100);}
       delay(500);
-      if (! cam.takePicture()) 
-           if(usbOn) {Serial.println("Failed to snap!"); waitMS(100);}
+      if (! cam.takePicture())
+          { if(usbOn) {Serial.println("Failed to snap!"); waitMS(100);} }
         else 
-           if(usbOn) {Serial.println("Picture taken!"); waitMS(100);}  
+          { if(usbOn) {Serial.println("Picture taken!"); waitMS(100);}  }
 
       // setupFile
       if(! Time.isValid()) 
@@ -961,11 +962,11 @@ void customPower()
 void showPMIC()  // reads values from the PMIC and displayes if usb connected
   {
     PMIC power(true);
-    Log.info("Current PMIC settings:");
-    Log.info("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
-    Log.info("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
-    Log.info("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
-    Log.info("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
+    Log.warn("Current PMIC settings:");
+    Log.warn("VIN Vmin_V_input_lowest: %u", power.getInputVoltageLimit());
+    Log.warn("VIN Imax_current_mA_max_limit: %u", power.getInputCurrentLimit());
+    Log.warn("Ichg_current_mA_value: %u", power.getChargeCurrentValue());
+    Log.warn("Iterm_charge_termination_V: %u", power.getChargeVoltageValue());
 
     int powerSource = System.powerSource();
     int batteryState = System.batteryState();
@@ -980,9 +981,9 @@ void showPMIC()  // reads values from the PMIC and displayes if usb connected
         "usb otg", "battery"
       };
 
-    Log.info("Power source: %s", powerSources[std::max(0, powerSource)]);
-    Log.info("Battery state: %s", batteryStates[std::max(0, batteryState)]);
-    Log.info("Battery charge: %f", batterySoc);
+    Log.warn("Power source: %s", powerSources[std::max(0, powerSource)]);
+    Log.warn("Battery state: %s", batteryStates[std::max(0, batteryState)]);
+    Log.warn("Battery charge: %f", batterySoc);
     waitSec(0.5);
   }
 
