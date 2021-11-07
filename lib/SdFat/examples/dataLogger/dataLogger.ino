@@ -17,7 +17,7 @@ const uint32_t SAMPLE_INTERVAL_MS = 1000;
 #define FILE_BASE_NAME "Data"
 //------------------------------------------------------------------------------
 // File system object.
-SdFat sd;
+SdFat sd(1);
 
 // Log file.
 SdFile file;
@@ -81,7 +81,7 @@ void setup() {
   
   // Initialize at the highest speed supported by the board that is
   // not over 50 MHz. Try a lower speed if SPI errors occur.
-  if (!sd.begin(chipSelect, SD_SCK_MHZ(50))) {
+  if (!sd(1).begin(chipSelect, SD_SCK_MHZ(50))) {
     sd.initErrorHalt();
   }
 
