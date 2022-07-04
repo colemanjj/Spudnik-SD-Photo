@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2013-2018 Ubidots.
+Copyright (c) 2013-2020 Ubidots.
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
 "Software"), to deal in the Software without restriction, including
@@ -22,15 +22,12 @@ Developed and maintained by Jose Garcia for IoT Services Inc
 */
 
 #include "UbiTcp.h"
-#include "Particle.h"
-#include "UbiConstants.h"
 
 /**************************************************************************
  * Overloaded constructors
  ***************************************************************************/
 
-UbiTCP::UbiTCP(const char* host, const int port, const char* user_agent,
-               const char* token) {
+UbiTCP::UbiTCP(const char* host, const int port, const char* user_agent, const char* token) {
   _host = host;
   _user_agent = user_agent;
   _token = token;
@@ -47,8 +44,7 @@ UbiTCP::~UbiTCP() {
   delete[] _token;
 }
 
-bool UbiTCP::sendData(const char* device_label, const char* device_name,
-                      char* payload, UbiFlags* flags) {
+bool UbiTCP::sendData(const char* device_label, const char* device_name, char* payload, UbiFlags* flags) {
   /* Makes sure that the client is connected to Ubidots */
   _client_tcp_ubi.connect(_host, UBIDOTS_TCP_PORT);
   reconnect(_host, UBIDOTS_TCP_PORT);
@@ -90,31 +86,7 @@ float UbiTCP::get(const char* device_label, const char* variable_label) {
   reconnect(_host, UBIDOTS_TCP_PORT);
 
   if (_client_tcp_ubi.connected()) {
-    /* Builds the request POST - Please reference this link to know all the
-     * request's structures https://ubidots.com/docs/api/ */
-    _client_tcp_ubi.print(_user_agent);
-    _client_tcp_ubi.print("|LV|");
-    _client_tcp_ubi.print(_token);
-    _client_tcp_ubi.print("|");
-    _client_tcp_ubi.print(device_label);
-    _client_tcp_ubi.print(":");
-    _client_tcp_ubi.print(variable_label);
-    _client_tcp_ubi.print("|end");
-
-    if (_debug) {
-      Serial.println("----");
-      Serial.println("Payload for request:");
-      Serial.print(_user_agent);
-      Serial.print("|LV|");
-      Serial.print(_token);
-      Serial.print("|");
-      Serial.print(device_label);
-      Serial.print(":");
-      Serial.print(variable_label);
-      Serial.print("|end");
-      Serial.println("\n----");
-    }
-
+    buildAndSendGetPacket(device_label, variable_label);
     /* Waits for the host's answer */
     if (!waitServerAnswer()) {
       _client_tcp_ubi.stop();
@@ -135,6 +107,41 @@ float UbiTCP::get(const char* device_label, const char* variable_label) {
 
   _client_tcp_ubi.stop();
   return ERROR_VALUE;
+}
+
+/**
+ * Retrieves multiple values in one request using TCP
+ * @deviceLabel [Mandatory] pointer that stores the label of the device to retrieve values from.
+ * @variableLabels [Mandatory] comma separated variable labels to retrieve values from
+ */
+
+tcpMap UbiTCP::getMultipleValues(const char* device_label, const char* variable_labels) {
+  tcpMap results;
+  /* Connecting the client */
+  _client_tcp_ubi.connect(_host, UBIDOTS_TCP_PORT);
+  reconnect(_host, UBIDOTS_TCP_PORT);
+
+  if (_client_tcp_ubi.connected()) {
+    buildAndSendGetPacket(device_label, variable_labels);
+    /* Waits for the host's answer */
+    if (!waitServerAnswer()) {
+      _client_tcp_ubi.stop();
+      char* token = strtok((char*)variable_labels, ",");
+      int mapKey = 0;
+      while (token != NULL) {
+        results.insert(std::pair<int, float>(mapKey, ERROR_VALUE));
+        mapKey++;
+        token = strtok(NULL, ",");
+      }
+      return results;
+    }
+  }
+
+  /* Reads the response from the server */
+  results = parseMultipleValues();
+
+  _client_tcp_ubi.stop();
+  return results;
 }
 
 /**
@@ -160,6 +167,34 @@ void UbiTCP::reconnect(const char* host, const int port) {
   }
 }
 
+/*
+ * Function to retrieves values following the structure at https://ubidots.com/docs/hw
+ */
+void UbiTCP::buildAndSendGetPacket(const char* device_label, const char* variable_labels) {
+  _client_tcp_ubi.print(_user_agent);
+  _client_tcp_ubi.print("|LV|");
+  _client_tcp_ubi.print(_token);
+  _client_tcp_ubi.print("|");
+  _client_tcp_ubi.print(device_label);
+  _client_tcp_ubi.print(":");
+  _client_tcp_ubi.print(variable_labels);
+  _client_tcp_ubi.print("|end");
+
+  if (_debug) {
+    Serial.println("----");
+    Serial.println("Payload for request:");
+    Serial.print(_user_agent);
+    Serial.print("|LV|");
+    Serial.print(_token);
+    Serial.print("|");
+    Serial.print(device_label);
+    Serial.print(":");
+    Serial.print(variable_labels);
+    Serial.print("|end");
+    Serial.println("\n----");
+  }
+}
+
 /**
  * Function to wait for the host answer up to the already set _timeout.
  * @return true once the host answer buffer length is greater than zero,
@@ -179,6 +214,67 @@ bool UbiTCP::waitServerAnswer() {
     }
   }
   return true;
+}
+
+/**
+ * Retrieves multiple values in one request using TCP
+ * @deviceLabel [Mandatory] pointer that stores the label of the device to retrieve values from.
+ * @variableLabels [Mandatory] comma separated variable labels to retrieve values from
+ */
+
+tcpMap UbiTCP::parseMultipleValues() {
+  char* response = (char*)malloc(sizeof(char) * MAX_BUFFER_SIZE);
+  int j = 0;
+
+  if (_debug) {
+    Serial.println("----------");
+    Serial.println("Server's response:");
+  }
+
+  while (_client_tcp_ubi.available()) {
+    char c = _client_tcp_ubi.read();
+    if (_debug) {
+      Serial.write(c);
+    }
+    response[j] = c;
+    j++;
+    if (j >= MAX_BUFFER_SIZE - 1) {
+      break;
+    }
+  }
+
+  if (_debug) {
+    Serial.println("\n----------");
+  }
+
+  response[j] = '\0';
+
+  tcpMap results;
+
+  // Returns first token
+  char* token = strtok(response, "|");
+  int mapKey = 0;
+
+  // Keep printing tokens while one of the
+  // delimiters present in str[].
+  while (token != NULL) {
+    if (strcmp(token, "OK") == 0) {
+      token = strtok(NULL, "|");
+      if (strcmp(token, "null") == 0) {
+        results.insert(std::pair<int, float>(mapKey, ERROR_VALUE));
+      } else {
+        results.insert(std::pair<int, float>(mapKey, atof(token)));
+      }
+    } else if (strcmp(token, "ERROR") == 0) {
+      token = strtok(NULL, "|");
+      results.insert(std::pair<int, float>(mapKey, ERROR_VALUE));
+    }
+    mapKey++;
+    token = strtok(NULL, "|");
+  }
+
+  free(response);
+  return results;
 }
 
 /**
@@ -215,7 +311,7 @@ float UbiTCP::parseTCPAnswer(const char* request_type, char* response) {
   float result = ERROR_VALUE;
 
   // POST
-  if (request_type == "POST") {
+  if (strcmp(request_type, "POST") == 0) {
     char* pch = strstr(response, "OK");
     if (pch != NULL) {
       result = 1;

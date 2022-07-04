@@ -62,34 +62,41 @@ ArduinoOutStream cout(Serial);
 // for the temp. humidity, pressure BME280 sensor
 #include <CE_BME280.h>
 // Create two BME280 instances
-CE_BME280 bme1; // I2C  for air temp. pressure, humidity address=0x77 (with SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt)
+CE_BME280 bme1; // I2C  for air temp. pressure, humidity address=0x77 
+                    // (if HiLetGo bme1 needs SD0 held high by wire to 3.3 V. see HiLetGo_BME280.txt)
 CE_BME280 bme2; // I2C   for WATER temp. & pressure  address=0x76
 //BME280_I2C bme1(0x76); // I2C using address 0x76
 //BME280_I2C bme2(0x77); // I2C using address 0x77
 
 //---#include <Adafruit_DHT_Particle.h>  // air and humidity sensor.   includes "isnan()" function
 //---#include <math.h>
-#include <Ubidots.h>   // using here Ubidots=3.1.4
+#include <Ubidots.h>   // using here Ubidots=3.1.4  / now 3.2.3
 //SYSTEM_MODE(AUTOMATIC); 
 SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flash remotely, tried automatic then set back to semi-automatic
 //The only main difference between SEMI_AUTOMATIC mode and AUTOMATIC mode is that for semi-automatic
     // Particle.connect() is not called at the beginning of your code;  With semi-automatic you must call Particle.connect() yourself
-///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
+SYSTEM_THREAD(ENABLED);   // seems to make the checking for connection routine work, keep an eye on this ****
+
 /////////////// DEFINE GLOBAL CONSTANTS ////////////////////////////////////////
-//#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
+//#define your_token "xyz..." for privacy, Ubidots token defined in sensitive_definitions.h
 #define DATA_SOURCE_NAME "Spudnik-31ds"
 #define unit_name "Spudnik-31"
-//String unit_name = "Spudnik-08b";
-//#define code_name String("particlesolar40vs")
+//String unit_name = "Spudnik-08b"; //#define code_name String("particlesolar40vs")
 #define code "Particle_Sol_SD"
-#define code_date "20211024_"
-#define version "1.0.30"  // with change to pins for e series
-//#define version "<!#FV> 1.0.30 </#FV>"
-//$define code_date="<!#FT> 2021/11/04 11:35:48.456 </#FT>"
-  #define t1_offset  -0.55 // correction offset for the AIR tmp. sensor  Set with thermometer before deployment
-  #define t2_offset  -0.40 // correction offset for the H2O tmp. sensor  Set with thermometer before deployment
-  #define k  1.25  // ***** K is a crude calibration factor that can be used to tune the Sp.C. readings
-  
+#define code_date "20220703_"  //  use Ctrl+d+Ctrl+d to insert date as formatted (see keyboad shortcuts)
+#define version "1.0.43"  // with change to pins for e series  
+                        //save with ctrl+s to increment version (uses extension "version boss")
+                        // save with menu File/Save will not update the version
+//#define version "<!#FV> 1.0.43 </#FV>" //$define code_date="<!#FT> 2022/07/03 21:37:44.835 </#FT>"
+/////////// offsets for the BME sensors & TDS, sensor specific /////////////////////////////
+  #define t1_offset  -0.60 // Spud-31 correction offset for the AIR tmp. sensor  Set with thermometer before deployment
+  #define t2_offset  -0.75 // Spud-31 correction offset for the H2O tmp. sensor  Set with thermometer before deployment
+  #define K  1.04          // Spud-31 crude calibrator that can be used to tune the Sp.C. readings 
+  /*
+  #define t1_offset  -0.05 // Spud-32 correction offset for the AIR tmp. sensor  Set with thermometer before deployment
+  #define t2_offset  -0.15 // Spud-32 correction offset for the H2O tmp. sensor  Set with thermometer before deployment
+  #define K  1.0           // Spud-32 crude calibrator that can be used to tune the Sp.C. readings 
+  */
 ////////////////////////////////////////////////////////////////////////////////
 
 //Time.year(-6)+Time.month(-6)+Time.day(-6))
@@ -127,15 +134,16 @@ Ubidots ubidots(your_token, UBI_TCP); // A data source with particle name will b
 // initialize battery variables
   float volts;  // battery voltage
   float SoC;    // battery charge
+  float Svolts;   // solar panel voltage
 //initialize timing variables
   int sleepInterval = 60;  // This is used below for sleep times and is equal to 60 seconds of time.
   int a_minute = 60000; // define a minute as 60000 milli-seconds
   int minutes = 60;  // default minutes to sleep
-  float waketime = 90/60;  // the average amount of time, in minutes, the unit is awake
-  int seconds = 10;  // default delay after uploading before going to sleep
+  float waketime = 120/60;  // the average amount of time, in minutes, the unit is awake
+  int seconds = 20;  // default delay after uploading before going to sleep
 /*
-D0 = SDA for temp/humid/pressure sensor (BME280)
-D1 = SCL for temp/humid/pressure sensor (BME280)
+D0 = SDA for temp/humid/pressure sensor (BME280) (yellow)
+D1 = SCL for temp/humid/pressure sensor (BME280)  (green)
 // D2 =
 //D3 = power for digital sensors (BME280, )
 C4 = power for digital sensors (BME280, )
@@ -146,8 +154,9 @@ C1 = ledPin  to flash LED
 
 //A0 = analog pin for TDS sensor  // set to DAC (ADC4) for e series
 DAC = analog pin for TDS sensor  
-//A1 = analog pin for rain sensor // set to A0 for e series
-A0 = analog pin for rain sensor 
+//A1 = analog read pin for rain sensor // set to A0 for e series
+A0 = analog read pin for rain sensor 
+A5 = analog read pin for voltage from solar panel
 
 ///A2 = analog pin for SPI (SS/SPI)   connected to mini-SD-card  CS
 ///A3 = analog pin for SPI (SCK)   connected to mini-SD-card  SCK
@@ -168,6 +177,7 @@ B4 = used as digital power pin to supply 3.3 volts to TDS analog sensor
 int RainPin = A0;
 int SpCSensorPin  = DAC;
 int ledPin = C1;         // LED connected to C1
+int SvoltsPin = A5;
 
   //ApplicationWatchdog wDog(90000, watchdogHandler, 512);
 int usbOn = 0;
@@ -274,11 +284,23 @@ void loop()
   setup_SD();
 
   {    // read sensors
+  rain = analogRead(RainPin);// cleans out residual voltage on analog pin
+  waitMS(50);
   rain = analogRead(RainPin);
+  waitMS(50);
   digitalWrite(A2, LOW);     //turn off power to the rain sensor, otherwise it interfears
                              // with the next analog sensor (i.e. TDS/Sp.C)
-  delay(200);
 
+  // if rigged for A5 to read solar volts this will get that voltage to Svolts
+  for (int i = 1; i<=2;i++)    {
+      Svolts = analogRead(SvoltsPin); // cleans out residual voltage on analog pin
+      waitMS(50);
+      }  
+   Svolts = analogRead(SvoltsPin)*(3.3/4095.0)*(57.0/10.0);
+  // or below also works
+  //Svolts =  map(analogRead(SvoltsPin),0.0,4095.0,0.0,3.3) * (57/10);
+  waitSec(1);
+  ///volts = Svolts;    /// report solar volatage if rigged to read volts using A5
     {   // read BME sensors
       // ---- get AIR temperature and humidity and pressure  // from BME280 using I2C connection
         int i = 0;
@@ -287,7 +309,7 @@ void loop()
                t1 = bme1.readTemperature();
                h1 = bme1.readHumidity();
                p1 = bme1.readPressure()/100.0;
-               delay(200);
+               delay(300);
                i++;
              }
           if (isnan(p1) || p1<1.0 )
@@ -299,7 +321,7 @@ void loop()
              {
               t2 = bme2.readTemperature();
               p2 = bme2.readPressure()/100.0;
-              delay(200);
+              delay(300);
               i++;
             }
           // Check if any reads failed but don't hold things up
@@ -317,7 +339,7 @@ void loop()
                                   // re-started and this check is done again
       }
   // ---- get WATER calculated Specific Conductance and median voltage on sensor
-    Sp_C = getSpC() * k;
+    Sp_C = getSpC() * K;
     Avolts = getAvolts();
   // turn off sensor POWER pins after sensors are read
     //digitalWrite(D3, LOW);	 // for the digital sensors, BME280s  
@@ -344,9 +366,9 @@ void loop()
 	ubidots.add(AirT, t1);
   ubidots.add("Pressure_hPA", p1);
   ubidots.add("H2O-Temp_C", t2);
-  ubidots.add("H2O_hPA", p2);
+  //ubidots.add("H2O_hPA", p2);
   ubidots.add("Depth_in", depth);
-  ubidots.add("Volts", volts);
+  ubidots.add("Volts", volts);   // will be actual solar voltage if rigged to read input voltage with A5
   ubidots.add("SOC", SoC);
    //if (t2 > -99.0)   // if reading water temperature was successful, send temp and Sp_Cond to Ubidots
   ubidots.add("Sp_Cond", Sp_C);
@@ -398,7 +420,7 @@ if (SoC >40)   // if enough charge connect and upload to Particle and Ubidots, s
   // send warning message to particle console
     char event[60];
       sprintf(event, " %s_w_%s%s%s", unit_name, code,code_date,version);
-      sprintf(publishStr, "uploaded, will sleep in %2i seconds", seconds);
+      sprintf(publishStr, "uploaded, sleep in %2i seconds", seconds);
     Particle.publish(event, publishStr,60,PRIVATE);
       if(usbOn) {Serial.println(String(event) + " sleeping " + String(minutes)); waitMS(100);}
     waitSec(seconds);  //wait seconds. seconds is set at beginning to 5 or else by call 
@@ -432,7 +454,7 @@ void Flicker(size_t n=1)
         for (size_t i = 0; i < n; i++)
         {
           digitalWrite(ledPin, HIGH);   // Sets the LED on
-          delay(10);                   // Waits for a sec
+          delay(10);                   // Waits for milli seconds
           digitalWrite(ledPin, LOW);   // Sets the LED off
           if (n>1)  delay(60);
         }
@@ -472,7 +494,7 @@ void UploadBlink()
           digitalWrite(ledPin, LOW);   // Sets the LED on
           delay(1000);
         }
-        for (size_t i = 0; i < 4; i++)
+        for (size_t i = 0; i < 5; i++)
         {
           digitalWrite(ledPin, HIGH);   // Sets the LED on
           delay(50);                   // Waits for a sec
@@ -516,7 +538,7 @@ int checkBattery(float charge,float V)          // redo this based on 29.ino ???
               {
                 min = 420;  // 7 hours (420 min)  // values set to shorter intervals during code testing
                   if (charge>35 )   min = 300;    // 5 hours (300 min)
-                      if (charge>40 )   min =115;     // 2 hours (120 min)
+                      if (charge>40 )   min =120;     // 2 hours (120 min)
                           if (charge>60 )   min = 90;   // 1.5 hours (90 min)
                                 if (charge>70 )   min = 60;     // 60 minutes
                                     if (charge>85 )   min = 30;      // 30 minutes;
@@ -545,6 +567,7 @@ float getSpC()
         float averageVoltage = 0;
         float SpC = -1.1;
 
+        analogRead(SpCSensorPin); // clean out old values from analog pin
         while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
           {
             analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
@@ -593,6 +616,7 @@ float getAvolts()
       int analogBufferIndex = 0, copyIndex = 0;
       float averageVoltage = 0;
 
+      analogRead(SpCSensorPin); // clean out old values from analog pin
       while (analogBufferIndex < SCOUNT)   // read the sensor every 50 milliseconds, SCOUNT times and store in array
         {
             analogBuffer[analogBufferIndex] = analogRead(SpCSensorPin);    //read the analog value and store into the buffer
@@ -719,11 +743,13 @@ void close_SD()
       //  file.close();
         
       if ( file.close() && sd.exists(fileName) )  {
+        Flicker(5);
         sprintf(publishStr, "SD-write worked at %s", 
                             Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
         }
         else {
+          Flicker(0);
         sprintf(publishStr, "SD-write FAILED at %s", 
                             Time.format(Time.now(),"%Y-%m-%d_%H-%M").c_str());
            if(usbOn) {Serial.println((publishStr)); waitMS(100);}
@@ -1012,7 +1038,7 @@ void connectToWeb()
                               // unless SYSTEM_THREAD(ENABLED). I have SYSTEM_THREAD(ENABLED);
                               //  in any case, after 5 mins of not successfuly connecting the modem
                               // will give up and stop blocking code execution
-      delay(200);
+      delay(300);
     ///   Serial.println("done the Cellular.connect() command, Waiting for Cellular.ready");
           // If the cellular modem does not successfuly connect to the cellular network in
           // 2 mins then blink blue LED and write message to serial below.
@@ -1023,7 +1049,7 @@ void connectToWeb()
                 delay(500);
                 WeakSignalBlink();
                   if(usbOn) {Serial.println("Difficulty connecting. Will try for 1 more min"); waitMS(100);}
-                delay(500);
+                delay(300);
             }   
           // check a second time to make sure it is connected, if not, try for 1 more minute
           if (!waitFor(Cellular.ready, a_minute * 0.5))
@@ -1075,7 +1101,7 @@ void uploadToUbi()
       //    ubidots.add("CellQual", sig.qual); //value location will show up as Ubidots "context"
       //    ubidots.add("CellStren", sig.rssi);
       //ubidots.add("CellQual", sig.getQuality()); //value location will show up as Ubidots "context"
-      ubidots.add("CellStren", sig.getStrength());
+      //ubidots.add("CellStren", sig.getStrength());
     //
     //  send the the data to Ubidots after it has been added
           ubidots.send(DATA_SOURCE_NAME,DATA_SOURCE_NAME); // Send rest of the data to your Ubidots account.
@@ -1089,17 +1115,17 @@ void uploadToUbi()
 void  uploadToParticle()
     {
     sprintf(publishStr, 
-      "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, k_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
-                works, t1_offset, t2_offset, k, t1, t2, Sp_C, rain, depth);
+      "works,%s, t1_offset,%05.2f, t2_offset,%05.2f, K_correction,%05.2f, AtempC,%05.2f, H2Otemp,%05.2f, SpC,%06.1f, rain,%06.0f, Depth_in,%06.3f",
+                works, t1_offset, t2_offset, K, t1, t2, Sp_C, rain, depth);
       Particle.publish(unit_name, publishStr, 60, PRIVATE);
-      delay(700);
+      delay(900);
       //    snprintf(_json, sizeof(_json), "%s,{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
       //                           unit_name.c_str(), t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts);
     snprintf(_json, sizeof(_json), 
       "{\"AtempC\":\"%05.2f\",\"H2Otemp\":\"%05.2f\",\"SpC\":\"%06.1f\", \"Avolts\":\"%05.3f\",\"rain\":\"%04.0f\",\"depth\":\"%06.3f\",\"SOC\":\"%05.2f\",\"volts\":\"%04.2f\"}",
                 t1, t2, Sp_C ,Avolts, rain, depth, SoC, volts );
         Particle.publish("data", _json, PRIVATE);
-      delay(700);
+      delay(900);
        if(usbOn) {Serial.println("finished uploading"); waitMS(100);}
     
     waitSec(1.5); //wait 1 more seconds

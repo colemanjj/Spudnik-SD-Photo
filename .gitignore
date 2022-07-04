@@ -8,3 +8,4 @@ src/backups/*
 target/*
 lib/*
 *.json
+junk/*

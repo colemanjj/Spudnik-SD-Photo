@@ -22,15 +22,12 @@ Developed and maintained by Jose Garcia for IoT Services Inc
 */
 
 #include "UbiHttp.h"
-#include "Particle.h"
-#include "UbiConstants.h"
 
 /**************************************************************************
  * Overloaded constructors
  ***************************************************************************/
 
-UbiHTTP::UbiHTTP(const char* host, const int port, const char* user_agent,
-                 const char* token) {
+UbiHTTP::UbiHTTP(const char* host, const int port, const char* user_agent, const char* token) {
   _host = host;
   _user_agent = user_agent;
   _token = token;
@@ -47,8 +44,7 @@ UbiHTTP::~UbiHTTP() {
   delete[] _token;
 }
 
-bool UbiHTTP::sendData(const char* device_label, const char* device_name,
-                       char* payload, UbiFlags* flags) {
+bool UbiHTTP::sendData(const char* device_label, const char* device_name, char* payload, UbiFlags* flags) {
   reconnect(_host, _port);
   bool result = false;
 
@@ -138,7 +134,7 @@ float UbiHTTP::get(const char* device_label, const char* variable_label) {
     _client_http_ubi.print("/lv");
     _client_http_ubi.print(" HTTP/1.1\r\n");
     _client_http_ubi.print("Host: ");
-    _client_http_ubi.print(UBIDOTS_HTTP_PORT);
+    _client_http_ubi.print(_host);
     _client_http_ubi.print("\r\n");
     _client_http_ubi.print("User-Agent: ");
     _client_http_ubi.print(_user_agent);
@@ -156,7 +152,7 @@ float UbiHTTP::get(const char* device_label, const char* variable_label) {
       Serial.print("/lv");
       Serial.print(" HTTP/1.1\r\n");
       Serial.print("Host: ");
-      Serial.print(UBIDOTS_HTTP_PORT);
+      Serial.print(_host);
       Serial.print("\r\n");
       Serial.print("User-Agent: ");
       Serial.print(_user_agent);
@@ -226,8 +222,7 @@ float UbiHTTP::parseHttpAnswer(const char* request_type, char* data) {
     int len = strlen(data);  // Length of the answer char array from the server
 
     for (int i = 0; i < len - 2; i++) {
-      if ((data[i] == '\r') && (data[i + 1] == '\n') && (data[i + 2] == '\r') &&
-          (data[i + 3] == '\n')) {
+      if ((data[i] == '\r') && (data[i + 1] == '\n') && (data[i + 2] == '\r') && (data[i + 3] == '\n')) {
         strncpy(parsed, data + i + 4, 20);  // Copies the result to the parsed
         parsed[20] = '\0';
         break;
@@ -324,3 +319,8 @@ bool UbiHTTP::waitServerAnswer() {
  */
 
 void UbiHTTP::setDebug(bool debug) { _debug = debug; }
+
+tcpMap UbiHTTP::getMultipleValues(const char* deviceLabel, const char* variableLabels) {
+  tcpMap results;
+  return results;
+}

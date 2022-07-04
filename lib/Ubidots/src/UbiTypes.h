@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2013-2018 Ubidots.
+Copyright (c) 2013-2020 Ubidots.
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
 "Software"), to deal in the Software without restriction, including
@@ -24,6 +24,8 @@ Developed and maintained by Jose Garcia for IoT Services Inc
 #ifndef _UbiTypes_H_
 #define _UbiTypes_H_
 
+#include <map>
+
 #include "Particle.h"
 
 typedef struct Value {
@@ -39,23 +41,15 @@ typedef struct ContextUbi {
   char *key_value;
 } ContextUbi;
 
-typedef struct MeshUbi {
-  char *deviceLabel;
-  char *deviceName;
-  char *variableLabel;
-  char *dotContext;
-  float dotValue;
-  unsigned long dotTimestampSeconds;
-  unsigned int dotTimestampMillis;
-} MeshUbi;
-
 typedef const char *UbiServer;
 
-typedef enum { UBI_HTTP, UBI_TCP, UBI_UDP, UBI_PARTICLE, UBI_MESH } IotProtocol;
+typedef enum { UBI_HTTP, UBI_TCP, UBI_UDP, UBI_PARTICLE } IotProtocol;
 
 typedef struct UbiFlags {
   UbiFlags() : particle_flag(PUBLIC) {}
   PublishFlags particle_flag;
 } UbiFlags;
+
+typedef std::map<int, float> tcpMap;
 
 #endif
