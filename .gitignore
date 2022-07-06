@@ -9,3 +9,4 @@ target/*
 lib/*
 *.json
 junk/*
+src/sensitive_definitions.h
