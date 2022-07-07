@@ -6,7 +6,8 @@ src/backups/*
 *.hex
 *.map
 target/*
-lib/*
+lib/**/
 *.json
 junk/*
+sensitive*
 src/sensitive_definitions.h
