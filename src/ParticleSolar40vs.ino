@@ -76,8 +76,8 @@ SYSTEM_MODE(SEMI_AUTOMATIC);   // was set at semi_automatic but I could not flas
     // Particle.connect() is not called at the beginning of your code;  With semi-automatic you must call Particle.connect() yourself
 ///SYSTEM_THREAD(ENABLED);       // seems to make the checking for connection routine work, keep an eye on this ****
 //#define your_token "xyz..."  // for privacy, the Ubidots token is defined in the included .h file as "your_token"
-#define DATA_SOURCE_NAME "Spudnik-31ds"
-#define unit_name "Spudnik-31"
+#define DATA_SOURCE_NAME "Spudnik-08b"
+#define unit_name "Spudnik-08"
 //String unit_name = "Spudnik-08b";
 #define code_name "particlesolar40vs"
 
@@ -160,6 +160,7 @@ void setup()
   wd = new ApplicationWatchdog(10min, watchdogHandler, 1536);
   // set date time callback function. Do in setup() or loop()?  used to write file datetime to SD-card
   SdFile::dateTimeCallback(dateTime);
+  Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
 
 //  Do I need to set up D0 and D1 in some way for the BME280s   ????????????
   pinMode(ledPin, OUTPUT);          // Sets pin as output
@@ -331,8 +332,8 @@ void loop()
   close_SD();
 
  //--------------take a photo  --------------------
-if ( (SoC > 60.0) && ( (Time.hour(-6)==10) || (Time.hour(-6)==11) ||
-                       (Time.hour(-6)==14) || (Time.hour(-6)==15) ) )
+if ( (SoC > 60.0) && ( (Time.hour()>=9) || (Time.hour()==11) ||
+                       (Time.hour()==14) || (Time.hour()==15) ) )
   {  
     digitalWrite(B2, HIGH);	//   turn on ground for the camera
     waitSec(2);
@@ -453,7 +454,8 @@ int checkBattery(float charge,float V)          // redo this based on 29.ino ???
           LowBattBlink();
           PMIC pmic;
           pmic.disableBATFET();
-          // turns off the battery. Unit will still run if power is supplied to VIN,
+          // to prevent complete discharge of battery
+          // turns off the battery feed. Unit will still run if power is supplied to VIN,
               // i.e. a solar panel+light
           // unit will stay on programed schedule of waking if power to VIN maintained
           // if no power to VIN, i.e. no light, then unit stays off
@@ -618,7 +620,7 @@ void setup_SD()
     {
        if (!sd.begin(chipSelect, SD_SCK_MHZ(20))) {  sprintf(works,"No ");   }
           else { sprintf(works,"Yes "); }
-        Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
+  //      Time.zone(-6);  // setup to CST time zone, which is part of the ISO8601 format        //**
         //if(Time.year() < 2020)
 
         if( !Time.isValid())
@@ -734,7 +736,17 @@ void takePhoto()
             if(usbOn) {Serial.print(reply); waitMS(100);}
         //  Serial.println("-----------------");
         }
-         if(usbOn) {Serial.println("Snap in 1/2 secs..."); waitMS(100);}
+       cam.setImageSize(VC0706_640x480);        // biggest
+      //cam.setImageSize(VC0706_320x240);        // medium
+      //cam.setImageSize(VC0706_160x120);          // small
+      // You can read the size back from the camera (optional, but maybe useful?)
+        uint8_t imgsize = cam.getImageSize();
+        Serial.print("Image size: ");
+        if (imgsize == VC0706_640x480) Serial.println("640x480");
+        if (imgsize == VC0706_320x240) Serial.println("320x240");
+        if (imgsize == VC0706_160x120) Serial.println("160x120");
+
+        if(usbOn) {Serial.println("Snap in 1/2 secs..."); waitMS(100);}
       delay(500);
       if (! cam.takePicture()) 
            if(usbOn) {Serial.println("Failed to snap!"); waitMS(100);}
