@@ -8,6 +8,5 @@ src/backups/*
 target/*
 lib/*
 *.json
-sensitive_definitions.h
-src/sensitive_definitions.h
+sensitive_definitions.*
 *.back
